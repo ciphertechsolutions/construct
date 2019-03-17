@@ -84,12 +84,16 @@ class Context(Container):
             _io=_io,
             _index=_index,
             _subcons=_subcons or [],
-            **kwargs,
         )
+        # Recursively build internal dictionaries as child contexts.
+        for key, value in kwargs.items():
+            if isinstance(value, dict) and value is not self:
+                value = self.from_parent(self, **value)
+            self[key] = value
 
     @classmethod
     def from_parent(cls, parent, _io=None, _subcons=None, **kwargs):
-        """Factory method for initializing a child container from the given parent."""
+        """Factory method for initializing a child Context from the given parent."""
         context = cls(
             _parsing=parent._parsing,
             _building=parent._building,
@@ -103,6 +107,14 @@ class Context(Container):
         context._params = parent._params
         context._root = parent._root
         return context
+
+    def get_child(self, name, default=None):
+        """Retrieves child Context or returns default if it doesn't exist."""
+        child_context = self.get(name, None)
+        if child_context and isinstance(child_context, Context):
+            return child_context
+        else:
+            return default
 
 
 def singleton(arg):
@@ -2047,9 +2059,8 @@ class Struct(Construct):
         return context
 
     def _sizeof(self, context, path):
-        context = Context.from_parent(context, _subcons=self._subcons)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
@@ -2174,9 +2185,8 @@ class Sequence(Construct):
         return retlist
 
     def _sizeof(self, context, path):
-        context = Context.from_parent(context, _subcons=self._subcons)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
@@ -2955,9 +2965,8 @@ class FocusedSeq(Construct):
         return finalret
 
     def _sizeof(self, context, path):
-        context = Context.from_parent(context, _subcons=self._subcons)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
@@ -5461,9 +5470,8 @@ class LazyStruct(Construct):
 
     def _sizeof(self, context, path):
         # exact copy from Struct class
-        context = Context.from_parent(context, _subcons=self._subcons)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
