@@ -162,6 +162,42 @@ class CipherError(ConstructError):
 #===============================================================================
 # used internally
 #===============================================================================
+
+class Context(Container):
+    """Special type of Container used to store contextual information during processing."""
+
+    def __init__(self, _parsing=False, _building=False, _sizing=False, _io=None, _index=None, _subcons=None, **kwargs):
+        super(Context, self).__init__(
+            _=None,
+            _root=None,
+            _params=self,
+            _parsing=_parsing,
+            _building=_building,
+            _sizing=_sizing,
+            _io=_io,
+            _index=_index,
+            _subcons=_subcons or [],
+            **kwargs,
+        )
+
+    @classmethod
+    def from_parent(cls, parent, _io=None, _subcons=None, **kwargs):
+        """Factory method for initializing a child container from the given parent."""
+        context = cls(
+            _parsing=parent._parsing,
+            _building=parent._building,
+            _sizing=parent._sizing,
+            _io=_io,
+            _subcons=_subcons,
+            _index=parent._index,
+            **kwargs,
+        )
+        context._ = parent
+        context._params = parent._params
+        context._root = parent._root
+        return context
+
+
 def singleton(arg):
     x = arg()
     return x
@@ -408,11 +444,7 @@ class Construct(object):
         r"""
         Parse a stream. Files, pipes, sockets, and other streaming sources of data are handled by this method. See parse().
         """
-        context = Container(**contextkw)
-        context._parsing = True
-        context._building = False
-        context._sizing = False
-        context._params = context
+        context = Context(_parsing=True, **contextkw)
         try:
             return self._parsereport(stream, context, "(parsing)")
         except CancelParsing:
@@ -457,11 +489,7 @@ class Construct(object):
         r"""
         Build an object directly into a stream. See build().
         """
-        context = Container(**contextkw)
-        context._parsing = False
-        context._building = True
-        context._sizing = False
-        context._params = context
+        context = Context(_building=True, **contextkw)
         self._build(obj, stream, context, "(building)")
 
     def build_file(self, obj, filename, **contextkw):
@@ -494,11 +522,7 @@ class Construct(object):
 
         :raises SizeofError: size could not be determined in actual context, or is impossible to be determined
         """
-        context = Container(**contextkw)
-        context._parsing = False
-        context._building = False
-        context._sizing = True
-        context._params = context
+        context = Context(_sizing=True, **contextkw)
         return self._sizeof(context, "(sizeof)")
 
     def _sizeof(self, context, path):
@@ -1032,7 +1056,7 @@ def Bitwise(subcon):
     Converts the stream from bytes to bits, and passes the bitstream to underlying subcon. Bitstream is a stream that contains 8 times as many bytes, and each byte is either \\x00 or \\x01 (in documentation those bytes are called bits).
 
     Parsing building and size are deferred to subcon, although size gets divided by 8 (therefore the subcon's size must be a multiple of 8).
-    
+
     Note that by default the bit ordering is from MSB to LSB for every byte (ie. bit-level big-endian). If you need it reversed, wrap this subcon with :class:`construct.core.BitsSwapped`.
 
     :param subcon: Construct instance, any field that works with bits (like BitsInteger) or is bit-byte agnostic (like Struct or Flag)
@@ -2163,7 +2187,7 @@ class Struct(Construct):
     r"""
     Sequence of usually named constructs, similar to structs in C. The members are parsed and build in the order they are defined. If a member is anonymous (its name is None) then it gets parsed and the value discarded, or it gets build from nothing (from None).
 
-    Some fields do not need to be named, since they are built without value anyway. See: Const Padding Check Error Pass Terminated Seek Tell for examples of such fields. 
+    Some fields do not need to be named, since they are built without value anyway. See: Const Padding Check Error Pass Terminated Seek Tell for examples of such fields.
 
     Operator + can also be used to make Structs (although not recommended).
 
@@ -2232,8 +2256,7 @@ class Struct(Construct):
     def _parse(self, stream, context, path):
         obj = Container()
         obj._io = stream
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         for sc in self.subcons:
             try:
                 subobj = sc._parsereport(stream, context, path)
@@ -2247,8 +2270,7 @@ class Struct(Construct):
     def _build(self, obj, stream, context, path):
         if obj is None:
             obj = Container()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             try:
@@ -2268,8 +2290,7 @@ class Struct(Construct):
         return context
 
     def _sizeof(self, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _subcons=self._subcons)
         try:
             return sum(sc._sizeof(context, path) for sc in self.subcons)
         except (KeyError, AttributeError):
@@ -2388,8 +2409,7 @@ class Sequence(Construct):
 
     def _parse(self, stream, context, path):
         obj = ListContainer()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         for sc in self.subcons:
             try:
                 subobj = sc._parsereport(stream, context, path)
@@ -2403,11 +2423,10 @@ class Sequence(Construct):
     def _build(self, obj, stream, context, path):
         if obj is None:
             obj = ListContainer([None for sc in self.subcons])
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         objiter = iter(obj)
         retlist = ListContainer()
-        for i,sc in enumerate(self.subcons):
+        for i, sc in enumerate(self.subcons):
             try:
                 subobj = next(objiter)
                 if sc.name:
@@ -2423,8 +2442,7 @@ class Sequence(Construct):
         return retlist
 
     def _sizeof(self, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _subcons=self._subcons)
         try:
             return sum(sc._sizeof(context, path) for sc in self.subcons)
         except (KeyError, AttributeError):
@@ -3234,8 +3252,7 @@ class FocusedSeq(Construct):
         raise AttributeError
 
     def _parse(self, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         for i,sc in enumerate(self.subcons):
             parseret = sc._parsereport(stream, context, path)
@@ -3246,8 +3263,7 @@ class FocusedSeq(Construct):
         return finalret
 
     def _build(self, obj, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         context[parsebuildfrom] = obj
         for i,sc in enumerate(self.subcons):
@@ -3259,8 +3275,7 @@ class FocusedSeq(Construct):
         return finalret
 
     def _sizeof(self, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _subcons=self._subcons)
         try:
             return sum(sc._sizeof(context, path) for sc in self.subcons)
         except (KeyError, AttributeError):
@@ -3708,8 +3723,7 @@ class Union(Construct):
 
     def _parse(self, stream, context, path):
         obj = Container()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcnos=self._subcons)
         fallback = stream_tell(stream, path)
         forwards = {}
         for i,sc in enumerate(self.subcons):
@@ -3727,8 +3741,7 @@ class Union(Construct):
         return obj
 
     def _build(self, obj, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             if sc.flagbuildnone:
@@ -5678,7 +5691,7 @@ class EncryptedSym(Tunnel):
     The key for encryption and decryption should be passed via `contextkw` to `build` and `parse` methods.
 
     This construct is heavily based on the `cryptography` library, which supports the following algorithms and modes. For more details please see the documentation of that library.
-    
+
     Algorithms:
     - AES
     - Camellia
@@ -5732,9 +5745,9 @@ class EncryptedSym(Tunnel):
         >>> d.build({"enc_data": {"width": 5, "height": 4}}, key=key128)
         b"o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86+\x00\x89\xf7\x8e\xc3L\x04\t\xca\x8a\xc8\xc2\xfb'\xc8"
         >>> d.parse(b"o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86+\x00\x89\xf7\x8e\xc3L\x04\t\xca\x8a\xc8\xc2\xfb'\xc8", key=key128)
-        Container: 
+        Container:
             iv = b'o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86' (total 16)
-            enc_data = Container: 
+            enc_data = Container:
                 width = 5
                 height = 4
    """
@@ -5773,7 +5786,7 @@ class EncryptedSymAead(Tunnel):
     The key for encryption and decryption should be passed via `contextkw` to `build` and `parse` methods.
 
     This construct is heavily based on the `cryptography` library, which supports the following AEAD ciphers. For more details please see the documentation of that library.
-    
+
     AEAD ciphers:
     - AESGCM
     - AESCCM
@@ -5805,7 +5818,7 @@ class EncryptedSymAead(Tunnel):
         >>> d.build({"associated_data": b"This is authenticated", "enc_data": b"The secret message"}, key=key128)
         b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xeeThis is authenticated\x88~\xe5Vh\x00\x01m\xacn\xad k\x02\x13\xf4\xb4[\xbe\x12$\xa0\x7f\xfb\xbf\x82Ar\xb0\x97C\x0b\xe3\x85'
         >>> d.parse(b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xeeThis is authenticated\x88~\xe5Vh\x00\x01m\xacn\xad k\x02\x13\xf4\xb4[\xbe\x12$\xa0\x7f\xfb\xbf\x82Ar\xb0\x97C\x0b\xe3\x85', key=key128)
-        Container: 
+        Container:
             nonce = b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xee' (total 16)
             associated_data = b'This is authenti'... (truncated, total 21)
             enc_data = b'The secret messa'... (truncated, total 18)
@@ -6002,8 +6015,7 @@ class LazyStruct(Construct):
         raise AttributeError
 
     def _parse(self, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         offset = stream_tell(stream, path)
         offsets = {0: offset}
         values = {}
@@ -6024,8 +6036,7 @@ class LazyStruct(Construct):
         # exact copy from Struct class
         if obj is None:
             obj = Container()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             try:
@@ -6046,8 +6057,7 @@ class LazyStruct(Construct):
 
     def _sizeof(self, context, path):
         # exact copy from Struct class
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = Context.from_parent(context, _subcons=self._subcons)
         try:
             return sum(sc._sizeof(context, path) for sc in self.subcons)
         except (KeyError, AttributeError):
