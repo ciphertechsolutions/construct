@@ -709,9 +709,9 @@ def test_computed():
 
 @xfail(reason="_index fails during parsing or building, not during compilation")
 def test_index():
-    d = Array(3, Bytes(this._index + 1))
+    d = Array(3, Bytes(this._index+1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
-    d = GreedyRange(Bytes(this._index + 1))
+    d = GreedyRange(Bytes(this._index+1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
     d = RepeatUntil(lambda o, l, ctx: ctx._index == 2, Bytes(this._index + 1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
@@ -2150,8 +2150,8 @@ def test_from_issue_357():
     assert st2.build(dict(b={})) == b""
 
 
-def test_context_is_container():
-    d = Struct(Check(lambda ctx: type(ctx) is Container))
+def test_context_is_context():
+    d = Struct(Check(lambda ctx: type(ctx) is Context))
     d.parse(b"")
 
 
