@@ -512,7 +512,7 @@ def test_computed():
 
 def test_index():
     d = Array(3, Bytes(this._index+1))
-    common(d, b"abbccc", [b"a", b"bb", b"ccc"])
+    common(d, b"abbccc", [b"a", b"bb", b"ccc"], 6)
     d = GreedyRange(Bytes(this._index+1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
     d = RepeatUntil(lambda o,l,ctx: ctx._index == 2, Bytes(this._index+1))
@@ -1657,8 +1657,8 @@ def test_from_issue_357():
     assert st1.build(dict(a={})) == b""
     assert st2.build(dict(b={})) == b""
 
-def test_context_is_container():
-    d = Struct(Check(lambda ctx: type(ctx) is Container))
+def test_context_is_context():
+    d = Struct(Check(lambda ctx: type(ctx) is Context))
     d.parse(b"")
 
 def test_from_issue_362():
