@@ -89,31 +89,30 @@ class Context(Container):
         # Recursively build internal dictionaries as child contexts.
         for key, value in kwargs.items():
             if isinstance(value, dict) and value is not self and not isinstance(value, Context):
-                value = self.from_parent(self, **value)
+                value = self.create_child(**value)
             self[key] = value
 
-    @classmethod
-    def from_parent(cls, parent, _io=None, _subcons=None, **kwargs):
-        """Factory method for initializing a child Context from the given parent."""
+    def create_child(self, _io=None, _subcons=None, **kwargs):
+        """Factory method for initializing a child Context."""
         # Don't allow children to change the processing status or index
         kwargs.pop('_parsing', None)
         kwargs.pop('_building', None)
         kwargs.pop('_sizing', None)
         kwargs.pop('_index', None)
 
-        context = cls(
-            _parsing=parent._parsing,
-            _building=parent._building,
-            _sizing=parent._sizing,
+        context = Context(
+            _parsing=self._parsing,
+            _building=self._building,
+            _sizing=self._sizing,
             _io=_io,
             _subcons=_subcons,
-            _index=parent._index,
+            _index=self._index,
             **kwargs,
         )
-        context._ = parent
-        context._params = parent._params
+        context._ = self
+        context._params = self._params
         # First child is root, since the very first parent context holds the user defined external parameters.
-        context._root = parent._root or context
+        context._root = self._root or context
         return context
 
     def get_child(self, name, default=None):
@@ -2042,7 +2041,7 @@ class Struct(Construct):
     def _parse(self, stream, context, path):
         obj = Container()
         obj._io = stream
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         for sc in self.subcons:
             try:
                 subobj = sc._parsereport(stream, context, path)
@@ -2056,7 +2055,7 @@ class Struct(Construct):
     def _build(self, obj, stream, context, path):
         if obj is None:
             obj = Container()
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             try:
@@ -2172,7 +2171,7 @@ class Sequence(Construct):
 
     def _parse(self, stream, context, path):
         obj = ListContainer()
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         for i,sc in enumerate(self.subcons):
             try:
                 subobj = sc._parsereport(stream, context, path)
@@ -2186,7 +2185,7 @@ class Sequence(Construct):
     def _build(self, obj, stream, context, path):
         if obj is None:
             obj = ListContainer([None for sc in self.subcons])
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         retlist = ListContainer()
         for i, (sc, subobj) in enumerate(zip(self.subcons, obj)):
             try:
@@ -2963,7 +2962,7 @@ class FocusedSeq(Construct):
         raise AttributeError
 
     def _parse(self, stream, context, path):
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         for i,sc in enumerate(self.subcons):
             parseret = sc._parsereport(stream, context, path)
@@ -2974,7 +2973,7 @@ class FocusedSeq(Construct):
         return finalret
 
     def _build(self, obj, stream, context, path):
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         context[parsebuildfrom] = obj
         for i,sc in enumerate(self.subcons):
@@ -3406,7 +3405,7 @@ class Union(Construct):
 
     def _parse(self, stream, context, path):
         obj = Container()
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         fallback = stream_tell(stream)
         forwards = {}
         for i,sc in enumerate(self.subcons):
@@ -3426,7 +3425,7 @@ class Union(Construct):
         return obj
 
     def _build(self, obj, stream, context, path):
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             if sc.flagbuildnone:
@@ -5449,7 +5448,7 @@ class LazyStruct(Construct):
         raise AttributeError
 
     def _parse(self, stream, context, path):
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         offset = stream_tell(stream)
         offsets = {0: offset}
         values = {}
@@ -5470,7 +5469,7 @@ class LazyStruct(Construct):
         # exact copy from Struct class
         if obj is None:
             obj = Container()
-        context = Context.from_parent(context, _io=stream, _subcons=self._subcons)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             try:
