@@ -511,9 +511,10 @@ def test_array():
     assert d.build([1,2,3]) == b"\x01\x02\x03"
     assert d.sizeof() == 3
 
-@xfail(ONWINDOWS, reason="/dev/zero not available on Windows")
 def test_array_nontellable():
-    assert Array(5, Byte).parse_stream(devzero) == [0,0,0,0,0]
+    stream = io.BytesIO(b'\x00\x00\x00\x00\x00')
+    stream.tell = None
+    assert Array(5, Byte).parse_stream(stream) == [0,0,0,0,0]
 
 def test_greedyrange():
     d = GreedyRange(Byte)
@@ -2126,6 +2127,10 @@ def test_struct_stream():
     )
     d.parse(bytes(20))
 
+    d = Struct()
+    d.parse(bytes(20))
+    d.parse_file("/dev/zero")
+
 def test_struct_root_topmost():
     d = Struct(
         'x' / Computed(1),
@@ -2353,7 +2358,7 @@ def test_struct_copy():
         "b" / Int8ub,
     )
     d_copy = copy.copy(d)
-    
+
     common(d, b"\x00\x01\x02", Container(a=1,b=2), 3)
     common(d_copy, b"\x00\x01\x02", Container(a=1,b=2), 3)
 

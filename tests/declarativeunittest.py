@@ -9,8 +9,6 @@ import os, math, random, collections, itertools, io, hashlib, binascii
 from construct import *
 from construct.lib import *
 
-if not ONWINDOWS:
-    devzero = open("/dev/zero", "rb")
 
 ident = lambda x: x
 
