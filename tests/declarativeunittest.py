@@ -10,7 +10,6 @@ from construct.lib import *
 
 ontravis = "TRAVIS" in os.environ
 ident = lambda x: x
-devzero = open("/dev/zero", "rb")
 
 
 def raises(func, *args, **kw):

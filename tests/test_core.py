@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import io
+
 from declarativeunittest import *
 from construct import *
 from construct.lib import *
@@ -454,7 +456,9 @@ def test_array():
     assert raises(d.sizeof, n=3) == 3
 
 def test_array_nontellable():
-    assert Array(5, Byte).parse_stream(devzero) == [0,0,0,0,0]
+    stream = io.BytesIO(b'\x00\x00\x00\x00\x00')
+    stream.tell = None
+    assert Array(5, Byte).parse_stream(stream) == [0,0,0,0,0]
 
 def test_greedyrange():
     common(GreedyRange(Byte), b"", [], SizeofError)
@@ -1902,7 +1906,7 @@ def test_struct_stream():
 
     d = Struct()
     d.parse(bytes(20))
-    d.parse_file("/dev/zero")
+    d.parse_file(io.BytesIO(b'\x00' * 20))
 
 def test_struct_root_topmost():
     d = Struct(
