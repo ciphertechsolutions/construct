@@ -2,6 +2,15 @@
 from setuptools import setup
 from construct.version import version_string
 
+
+extra_require = [
+    "enum34",
+    "numpy",
+    "arrow",
+    "ruamel.yaml"
+]
+
+
 setup(
     name = "construct",
     version = version_string,
@@ -18,13 +27,12 @@ setup(
     author_email = "arek.bulski@gmail.com, tomerfiliba@gmail.com, MostAwesomeDude@gmail.com",
     install_requires = [],
     extras_require = {
-        "extras": [
-            "enum34",
-            "numpy",
-            "arrow",
-            "ruamel.yaml",
-        ],
+        "extras": extra_require
     },
+    test_require = extra_require + [
+        "pytest",
+        "pytest-benchmark",
+    ],
     keywords = [
         "construct",
         "kaitai",
