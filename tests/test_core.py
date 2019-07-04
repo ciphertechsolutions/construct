@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import io
+import pytest
 
 from declarativeunittest import *
 from construct import *
@@ -11,37 +12,47 @@ def test_bytes():
     d = Bytes(4)
     common(d, b"1234", b"1234", 4)
     assert d.parse(b"1234567890") == b"1234"
-    assert raises(d.parse, b"") == StreamError
-    assert raises(d.build, b"looooooooooooooong") == StreamError
+    with pytest.raises(StreamError):
+        d.parse(b"")
+    with pytest.raises(StreamError):
+        d.build(b"looooooooooooooong")
     assert d.build(1) == b"\x00\x00\x00\x01"
     assert d.build(0x01020304) == b"\x01\x02\x03\x04"
 
     d = Bytes(this.n)
     common(d, b"1234", b"1234", 4, n=4)
-    assert d.parse(b"1234567890",n=4) == b"1234"
+    assert d.parse(b"1234567890", n=4) == b"1234"
     assert d.build(1, n=4) == b"\x00\x00\x00\x01"
-    assert raises(d.build, b"", n=4) == StreamError
-    assert raises(d.build, b"toolong", n=4) == StreamError
-    assert raises(d.sizeof) == SizeofError
-    assert raises(d.sizeof, n=4) == 4
+    with pytest.raises(StreamError):
+        d.build(b"", n=4)
+    with pytest.raises(StreamError):
+        d.build(b"toolong", n=4)
+    with pytest.raises(SizeofError):
+        d.sizeof()
+    assert d.sizeof(n=4) == 4
+
 
 def test_greedybytes():
     common(GreedyBytes, b"1234", b"1234", SizeofError)
 
+
 def test_bitwise():
     common(Bitwise(Bytes(8)), b"\xff", b"\x01\x01\x01\x01\x01\x01\x01\x01", 1)
-    common(Bitwise(Array(8,Bit)), b"\xff", [1,1,1,1,1,1,1,1], 1)
-    common(Bitwise(Array(2,Nibble)), b"\xff", [15,15], 1)
-    common(Bitwise(Array(1,Octet)), b"\xff", [255], 1)
+    common(Bitwise(Array(8, Bit)), b"\xff", [1, 1, 1, 1, 1, 1, 1, 1], 1)
+    common(Bitwise(Array(2, Nibble)), b"\xff", [15, 15], 1)
+    common(Bitwise(Array(1, Octet)), b"\xff", [255], 1)
 
     common(Bitwise(GreedyBytes), bytes(10), bytes(80), SizeofError)
 
+
 def test_bytewise():
     common(Bitwise(Bytewise(Bytes(1))), b"\xff", b"\xff", 1)
-    common(BitStruct("p1"/Nibble, "num"/Bytewise(Int24ub), "p2"/Nibble), b"\xf0\x10\x20\x3f", Container(p1=15, num=0x010203, p2=15), 4)
-    common(Bitwise(Sequence(Nibble, Bytewise(Int24ub), Nibble)), b"\xf0\x10\x20\x3f", [0x0f,0x010203,0x0f], 4)
+    common(BitStruct("p1" / Nibble, "num" / Bytewise(Int24ub), "p2" / Nibble), b"\xf0\x10\x20\x3f",
+           Container(p1=15, num=0x010203, p2=15), 4)
+    common(Bitwise(Sequence(Nibble, Bytewise(Int24ub), Nibble)), b"\xf0\x10\x20\x3f", [0x0f, 0x010203, 0x0f], 4)
 
     common(Bitwise(Bytewise(GreedyBytes)), bytes(10), bytes(10), SizeofError)
+
 
 def test_ints():
     common(Byte, b"\xff", 255, 1)
@@ -77,16 +88,19 @@ def test_ints():
     common(Int32sl, b"\xff\xff\xff\xff", -1, 4)
     common(Int64sl, b"\xff\xff\xff\xff\xff\xff\xff\xff", -1, 8)
 
+
 def test_ints24():
     common(Int24ub, b"\x01\x02\x03", 0x010203, 3)
     common(Int24ul, b"\x01\x02\x03", 0x030201, 3)
     common(Int24sb, b"\xff\xff\xff", -1, 3)
     common(Int24sl, b"\xff\xff\xff", -1, 3)
 
-@xfail(not supportshalffloats, reason="Half-precision floats were introduced in 3.6")
+
+@pytest.mark.xfail(not supportshalffloats, reason="Half-precision floats were introduced in 3.6")
 def test_halffloats():
     common(Half, b"\x00\x00", 0., 2)
     common(Half, b"\x35\x55", 0.333251953125, 2)
+
 
 def test_floats():
     common(Single, b"\x00\x00\x00\x00", 0., 4)
@@ -94,33 +108,41 @@ def test_floats():
     common(Double, b"\x00\x00\x00\x00\x00\x00\x00\x00", 0., 8)
     common(Double, b"?\xf3333333", 1.2, 8)
 
+
 def test_formatfield():
-    d = FormatField("<","L")
+    d = FormatField("<", "L")
     common(d, b"\x01\x02\x03\x04", 0x04030201, 4)
-    assert raises(d.parse, b"") == StreamError
-    assert raises(d.parse, b"\x01\x02") == StreamError
-    assert raises(d.build, 2**100) == FormatFieldError
-    assert raises(d.build, 1e9999) == FormatFieldError
-    assert raises(d.build, "string not int") == FormatFieldError
+    with pytest.raises(StreamError):
+        d.parse(b"")
+    with pytest.raises(StreamError):
+        d.parse(b"\x01\x02")
+    with pytest.raises(FormatFieldError):
+        d.build(2 ** 100)
+    with pytest.raises(FormatFieldError):
+        d.build(1e9999)
+    with pytest.raises(FormatFieldError):
+        d.build("string not int")
+
 
 def test_formatfield_ints_randomized():
-    for endianess,dtype in itertools.product("<>=","bhlqBHLQ"):
+    for endianess, dtype in itertools.product("<>=", "bhlqBHLQ"):
         d = FormatField(endianess, dtype)
         for i in range(100):
-            obj = random.randrange(0, 256**d.sizeof()//2)
+            obj = random.randrange(0, 256 ** d.sizeof() // 2)
             assert d.parse(d.build(obj)) == obj
             data = os.urandom(d.sizeof())
             assert d.build(d.parse(data)) == data
+
 
 def test_formatfield_floats_randomized():
     # there is a roundoff error because Python float is a C double
     # http://stackoverflow.com/questions/39619636/struct-unpackstruct-packfloat-has-roundoff-error
     # and analog although that was misplaced
     # http://stackoverflow.com/questions/39676482/struct-packstruct-unpackfloat-is-inconsistent-on-py3
-    for endianess,dtype in itertools.product("<>=","fd"):
+    for endianess, dtype in itertools.product("<>=", "fd"):
         d = FormatField(endianess, dtype)
         for i in range(100):
-            x = random.random()*12345
+            x = random.random() * 12345
             if dtype == "d":
                 assert d.parse(d.build(x)) == x
             else:
@@ -130,13 +152,17 @@ def test_formatfield_floats_randomized():
             if not math.isnan(d.parse(b)):
                 assert d.build(d.parse(b)) == b
 
+
 def test_bytesinteger():
     d = BytesInteger(4, signed=True, swapped=False)
     common(d, b"\x01\x02\x03\x04", 0x01020304, 4)
     common(d, b"\xff\xff\xff\xff", -1, 4)
-    assert raises(BytesInteger(this.missing).sizeof) == SizeofError
-    assert raises(BytesInteger(4, signed=False).build, -1) == IntegerError
+    with pytest.raises(SizeofError):
+        BytesInteger(this.missing).sizeof()
+    with pytest.raises(IntegerError):
+        BytesInteger(4, signed=False).build(-1)
     common(BytesInteger(0), b"", 0, 0)
+
 
 def test_bitsinteger():
     d = BitsInteger(8)
@@ -145,87 +171,106 @@ def test_bitsinteger():
     common(d, b"\x01\x01\x01\x01\x01\x01\x01\x01", -1, 8)
     d = BitsInteger(16, swapped=True)
     common(d, b"\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01", 0xff00, 16)
-    assert raises(BitsInteger(this.missing).sizeof) == SizeofError
-    assert raises(BitsInteger(8, signed=False).build, -1) == IntegerError
+    with pytest.raises(SizeofError):
+        BitsInteger(this.missing).sizeof()
+    with pytest.raises(IntegerError):
+        BitsInteger(8, signed=False).build(-1)
     common(BitsInteger(0), b"", 0, 0)
 
+
 def test_varint():
-    common(VarInt, b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x10", 2**123, SizeofError)
-    for n in [0,1,5,100,255,256,65535,65536,2**32,2**100]:
+    common(VarInt, b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x10", 2 ** 123, SizeofError)
+    for n in [0, 1, 5, 100, 255, 256, 65535, 65536, 2 ** 32, 2 ** 100]:
         assert VarInt.parse(VarInt.build(n)) == n
     for n in range(0, 127):
         common(VarInt, int2byte(n), n, SizeofError)
 
-    assert raises(VarInt.parse, b"") == StreamError
-    assert raises(VarInt.build, -1) == IntegerError
+    with pytest.raises(StreamError):
+        VarInt.parse(b"")
+    with pytest.raises(IntegerError):
+        VarInt.build(-1)
+
 
 def test_varint_issue_705():
     d = Struct('namelen' / VarInt, 'name' / Bytes(this.namelen))
-    d.build(Container(namelen = 400, name = bytes(400)))
+    d.build(Container(namelen=400, name=bytes(400)))
+
 
 def test_paddedstring():
     common(PaddedString(10, "utf8"), b"hello\x00\x00\x00\x00\x00", u"hello", 10)
 
     d = PaddedString(100, "ascii")
-    assert d.parse(b"X"*100) == u"X"*100
-    assert d.build(u"X"*100) == b"X"*100
-    assert raises(d.build, u"X"*200) == PaddingError
+    assert d.parse(b"X" * 100) == u"X" * 100
+    assert d.build(u"X" * 100) == b"X" * 100
+    with pytest.raises(PaddingError):
+        d.build(u"X" * 200)
 
-    for e,us in [("utf8",1),("utf16",2),("utf_16_le",2),("utf32",4),("utf_32_le",4)]:
+    for e, us in [("utf8", 1), ("utf16", 2), ("utf_16_le", 2), ("utf32", 4), ("utf_32_le", 4)]:
         s = u"Афон"
-        data = (s.encode(e)+bytes(100))[:100]
+        data = (s.encode(e) + bytes(100))[:100]
         common(PaddedString(100, e), data, s, 100)
         s = u""
         data = bytes(100)
         common(PaddedString(100, e), data, s, 100)
 
-    for e in ["ascii","utf8","utf16","utf-16-le","utf32","utf-32-le"]:
+    for e in ["ascii", "utf8", "utf16", "utf-16-le", "utf32", "utf-32-le"]:
         PaddedString(10, e).sizeof() == 10
         PaddedString(this.n, e).sizeof(n=10) == 10
 
+
 def test_pascalstring():
-    for e,us in [("utf8",1),("utf16",2),("utf_16_le",2),("utf32",4),("utf_32_le",4)]:
+    for e, us in [("utf8", 1), ("utf16", 2), ("utf_16_le", 2), ("utf32", 4), ("utf_32_le", 4)]:
         for sc in [Byte, Int16ub, Int16ul, VarInt]:
             s = u"Афон"
             data = sc.build(len(s.encode(e))) + s.encode(e)
             common(PascalString(sc, e), data, s)
             common(PascalString(sc, e), sc.build(0), u"")
 
-    for e in ["utf8","utf16","utf-16-le","utf32","utf-32-le","ascii"]:
-        raises(PascalString(Byte, e).sizeof) == SizeofError
-        raises(PascalString(VarInt, e).sizeof) == SizeofError
+    for e in ["utf8", "utf16", "utf-16-le", "utf32", "utf-32-le", "ascii"]:
+        with pytest.raises(SizeofError):
+            PascalString(Byte, e).sizeof()
+        with pytest.raises(SizeofError):
+            PascalString(VarInt, e).sizeof()
+
 
 def test_cstring():
-    for e,us in [("utf8",1),("utf16",2),("utf_16_le",2),("utf32",4),("utf_32_le",4)]:
+    for e, us in [("utf8", 1), ("utf16", 2), ("utf_16_le", 2), ("utf32", 4), ("utf_32_le", 4)]:
         s = u"Афон"
-        common(CString(e), s.encode(e)+bytes(us), s)
+        common(CString(e), s.encode(e) + bytes(us), s)
         common(CString(e), bytes(us), u"")
 
-    CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd'+b"\x00"
-    CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04'+b"\x00\x00"
-    CString("utf32").build(s) == b'\xff\xfe\x00\x00\x10\x04\x00\x00D\x04\x00\x00>\x04\x00\x00=\x04\x00\x00'+b"\x00\x00\x00\x00"
+    CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
+    CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
+    CString("utf32").build(
+        s) == b'\xff\xfe\x00\x00\x10\x04\x00\x00D\x04\x00\x00>\x04\x00\x00=\x04\x00\x00' + b"\x00\x00\x00\x00"
 
-    for e in ["utf8","utf16","utf-16-le","utf32","utf-32-le","ascii"]:
-        raises(CString(e).sizeof) == SizeofError
+    for e in ["utf8", "utf16", "utf-16-le", "utf32", "utf-32-le", "ascii"]:
+        with pytest.raises(SizeofError):
+            CString(e).sizeof()
+
 
 def test_greedystring():
-    for e,us in [("utf8",1),("utf16",2),("utf_16_le",2),("utf32",4),("utf_32_le",4)]:
+    for e, us in [("utf8", 1), ("utf16", 2), ("utf_16_le", 2), ("utf32", 4), ("utf_32_le", 4)]:
         s = u"Афон"
         common(GreedyString(e), s.encode(e), s)
         common(GreedyString(e), b"", u"")
 
-    for e in ["utf8","utf16","utf-16-le","utf32","utf-32-le","ascii"]:
-        raises(GreedyString(e).sizeof) == SizeofError
+    for e in ["utf8", "utf16", "utf-16-le", "utf32", "utf-32-le", "ascii"]:
+        with pytest.raises(SizeofError):
+            GreedyString(e).sizeof()
+
 
 def test_string_encodings():
     # checks that "-" is replaced with "_"
     common(GreedyString("utf-8"), b"", u"")
     common(GreedyString("utf-8"), b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd', u"Афон")
 
+
 def test_flag():
     common(Flag, b"\x00", False, 1)
     common(Flag, b"\x01", True, 1)
     Flag.parse(b"\xff") == True
+
 
 def test_enum():
     d = Enum(Byte, one=1, two=2, four=4, eight=8)
@@ -241,35 +286,46 @@ def test_enum():
     assert d.build(d.eight) == b'\x08'
     assert d.one == "one"
     assert int(d.one) == 1
-    assert raises(d.build, "unknown") == MappingError
-    assert raises(lambda: d.missing) == AttributeError
+    with pytest.raises(MappingError):
+        d.build("unknown")
+    with pytest.raises(AttributeError):
+        d.missing
 
-@xfail(not supportsintenum, raises=AttributeError, reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
+
+@pytest.mark.xfail(not supportsintenum, raises=AttributeError,
+                   reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
 def test_enum_enum34():
     import enum
     class E(enum.IntEnum):
         a = 1
+
     class F(enum.IntEnum):
         b = 2
+
     common(Enum(Byte, E, F), b"\x01", "a", 1)
     common(Enum(Byte, E, F), b"\x02", "b", 1)
 
-@xfail(not supportsintflag, raises=AttributeError, reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
+
+@pytest.mark.xfail(not supportsintflag, raises=AttributeError,
+                   reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
 def test_enum_enum36():
     import enum
     class E(enum.IntEnum):
         a = 1
+
     class F(enum.IntFlag):
         b = 2
+
     common(Enum(Byte, E, F), b"\x01", "a", 1)
     common(Enum(Byte, E, F), b"\x02", "b", 1)
+
 
 def test_enum_issue_298():
     st = Struct(
         "ctrl" / Enum(Byte,
-            NAK = 0x15,
-            STX = 0x02,
-        ),
+                      NAK=0x15,
+                      STX=0x02,
+                      ),
         Probe(),
         "optional" / If(this.ctrl == "NAK", Byte),
     )
@@ -290,6 +346,7 @@ def test_enum_issue_298():
     )
     common(st, b"\x01", dict(flag=True), 1)
 
+
 def test_enum_issue_677():
     d = Enum(Byte, one=1)
     common(d, b"\xff", 255, 1)
@@ -307,94 +364,114 @@ def test_enum_issue_677():
     assert str(d.parse(b"\x01")) == 'Container: \n    e = (enum) one 1'
     assert str(d.parse(b"\xff")) == 'Container: \n    e = (enum) (unknown) 255'
 
+
 def test_flagsenum():
     d = FlagsEnum(Byte, one=1, two=2, four=4, eight=8)
     common(d, b"\x03", Container(_flagsenum=True)(one=True)(two=True)(four=False)(eight=False), 1)
     assert d.build({}) == b'\x00'
-    assert d.build(dict(one=True,two=True)) == b'\x03'
+    assert d.build(dict(one=True, two=True)) == b'\x03'
     assert d.build(8) == b'\x08'
-    assert d.build(1|2) == b'\x03'
+    assert d.build(1 | 2) == b'\x03'
     assert d.build(255) == b"\xff"
     assert d.build(d.eight) == b'\x08'
-    assert d.build(d.one|d.two) == b'\x03'
-    assert raises(d.build, dict(unknown=True)) == MappingError
-    assert raises(d.build, "unknown") == MappingError
+    assert d.build(d.one | d.two) == b'\x03'
+    with pytest.raises(MappingError):
+        d.build(dict(unknown=True))
+    with pytest.raises(MappingError):
+        d.build("unknown")
     assert d.one == "one"
-    assert d.one|d.two == "one|two"
-    assert raises(lambda: d.missing) == AttributeError
+    assert d.one | d.two == "one|two"
+    with pytest.raises(AttributeError):
+        d.missing
 
-@xfail(not supportsintenum, raises=AttributeError, reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
+
+@pytest.mark.xfail(not supportsintenum, raises=AttributeError,
+                   reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
 def test_flagsenum_enum34():
     import enum
     class E(enum.IntEnum):
         a = 1
+
     class F(enum.IntEnum):
         b = 2
-    common(FlagsEnum(Byte, E, F), b"\x01", Container(_flagsenum=True)(a=True,b=False), 1)
-    common(FlagsEnum(Byte, E, F), b"\x02", Container(_flagsenum=True)(a=False,b=True), 1)
-    common(FlagsEnum(Byte, E, F), b"\x03", Container(_flagsenum=True)(a=True,b=True), 1)
 
-@xfail(not supportsintflag, raises=AttributeError, reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
+    common(FlagsEnum(Byte, E, F), b"\x01", Container(_flagsenum=True)(a=True, b=False), 1)
+    common(FlagsEnum(Byte, E, F), b"\x02", Container(_flagsenum=True)(a=False, b=True), 1)
+    common(FlagsEnum(Byte, E, F), b"\x03", Container(_flagsenum=True)(a=True, b=True), 1)
+
+
+@pytest.mark.xfail(not supportsintflag, raises=AttributeError,
+                   reason="IntEnum introduced in 3.4, IntFlag introduced in 3.6")
 def test_flagsenum_enum36():
     import enum
     class E(enum.IntEnum):
         a = 1
+
     class F(enum.IntFlag):
         b = 2
-    common(FlagsEnum(Byte, E, F), b"\x01", Container(_flagsenum=True)(a=True,b=False), 1)
-    common(FlagsEnum(Byte, E, F), b"\x02", Container(_flagsenum=True)(a=False,b=True), 1)
-    common(FlagsEnum(Byte, E, F), b"\x03", Container(_flagsenum=True)(a=True,b=True), 1)
+
+    common(FlagsEnum(Byte, E, F), b"\x01", Container(_flagsenum=True)(a=True, b=False), 1)
+    common(FlagsEnum(Byte, E, F), b"\x02", Container(_flagsenum=True)(a=False, b=True), 1)
+    common(FlagsEnum(Byte, E, F), b"\x03", Container(_flagsenum=True)(a=True, b=True), 1)
+
 
 def test_mapping():
     x = object
-    d = Mapping(Byte, {x:0})
+    d = Mapping(Byte, {x: 0})
     common(d, b"\x00", x, 1)
+
 
 def test_struct():
     common(Struct(), b"", Container(), 0)
-    common(Struct("a"/Int16ub, "b"/Int8ub), b"\x00\x01\x02", Container(a=1,b=2), 3)
-    common(Struct("a"/Struct("b"/Byte)), b"\x01", Container(a=Container(b=1)), 1)
+    common(Struct("a" / Int16ub, "b" / Int8ub), b"\x00\x01\x02", Container(a=1, b=2), 3)
+    common(Struct("a" / Struct("b" / Byte)), b"\x01", Container(a=Container(b=1)), 1)
     common(Struct(Const(b"\x00"), Padding(1), Pass, Terminated), bytes(2), {}, SizeofError)
-    assert raises(Struct("missingkey"/Byte).build, {}) == KeyError
-    assert raises(Struct(Bytes(this.missing)).sizeof) == SizeofError
+    with pytest.raises(KeyError):
+        Struct("missingkey" / Byte).build({})
+    with pytest.raises(SizeofError):
+        Struct(Bytes(this.missing)).sizeof()
     d = Struct(Computed(7), Const(b"JPEG"), Pass, Terminated)
     assert d.build(None) == d.build({})
 
-def test_struct_nested_embedded():
-    d = Struct("a"/Byte, "b"/Int16ub, "inner"/Struct("c"/Byte, "d"/Byte))
-    common(d, b"\x01\x00\x02\x03\x04", Container(a=1,b=2,inner=Container(c=3,d=4)), 5)
-    d = Struct("a"/Byte, "b"/Int16ub, Embedded("inner"/Struct("c"/Byte, "d"/Byte)))
-    common(d, b"\x01\x00\x02\x03\x04", Container(a=1,b=2,c=3,d=4), 5)
 
-@xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
+def test_struct_nested_embedded():
+    d = Struct("a" / Byte, "b" / Int16ub, "inner" / Struct("c" / Byte, "d" / Byte))
+    common(d, b"\x01\x00\x02\x03\x04", Container(a=1, b=2, inner=Container(c=3, d=4)), 5)
+    d = Struct("a" / Byte, "b" / Int16ub, Embedded("inner" / Struct("c" / Byte, "d" / Byte)))
+    common(d, b"\x01\x00\x02\x03\x04", Container(a=1, b=2, c=3, d=4), 5)
+
+
+@pytest.mark.xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
 def test_struct_kwctor():
     d = Struct(a=Byte, b=Byte, c=Byte, d=Byte)
-    common(d, b"\x01\x02\x03\x04", Container(a=1,b=2,c=3,d=4), 4)
+    common(d, b"\x01\x02\x03\x04", Container(a=1, b=2, c=3, d=4), 4)
+
 
 def test_struct_proper_context():
     # adjusted to support new embedding semantics
     d1 = Struct(
-        "x"/Byte,
-        "inner"/Struct(
-            "y"/Byte,
-            "a"/Computed(this._.x+1),
-            "b"/Computed(this.y+2),
+        "x" / Byte,
+        "inner" / Struct(
+            "y" / Byte,
+            "a" / Computed(this._.x + 1),
+            "b" / Computed(this.y + 2),
         ),
-        "c"/Computed(this.x+3),
-        "d"/Computed(this.inner.y+4),
+        "c" / Computed(this.x + 3),
+        "d" / Computed(this.inner.y + 4),
     )
     d2 = Struct(
-        "x"/Byte,
-        "inner"/Embedded(Struct(
-            "y"/Byte,
-            "a"/Computed(this.x+1),  # important
-            "b"/Computed(this.y+2),  # important
+        "x" / Byte,
+        "inner" / Embedded(Struct(
+            "y" / Byte,
+            "a" / Computed(this.x + 1),  # important
+            "b" / Computed(this.y + 2),  # important
         )),
-        "c"/Computed(this.x+3),
-        "d"/Computed(this.y+4),
+        "c" / Computed(this.x + 3),
+        "d" / Computed(this.y + 4),
     )
     assert d1.parse(b"\x01\x0f") == Container(x=1)(inner=Container(y=15)(a=2)(b=17))(c=4)(d=19)
     assert d2.parse(b"\x01\x0f") == Container(x=1)(y=15)(a=2)(b=17)(c=4)(d=19)
+
 
 def test_struct_sizeof_context_nesting():
     st = Struct(
@@ -408,6 +485,7 @@ def test_struct_sizeof_context_nesting():
         Check(this.inner.b == 2),
     )
     st.sizeof()
+
 
 def test_struct_issue_566():
     inner = Struct(
@@ -423,107 +501,133 @@ def test_struct_issue_566():
     outer.parse(b'\x01\x02\x03') == Container(a=1)(inner=Container(b=2)(c=3))
     outer.build(Container(a=1)(inner=Container(b=2)(c=3))) == b'\x01\x02\x80\x03\x04'
 
+
 def test_sequence():
     common(Sequence(), b"", [], 0)
-    common(Sequence(Int8ub, Int16ub), b"\x01\x00\x02", [1,2], 3)
-    common(Int8ub >> Int16ub, b"\x01\x00\x02", [1,2], 3)
+    common(Sequence(Int8ub, Int16ub), b"\x01\x00\x02", [1, 2], 3)
+    common(Int8ub >> Int16ub, b"\x01\x00\x02", [1, 2], 3)
     d = Sequence(Computed(7), Const(b"JPEG"), Pass, Terminated)
-    assert d.build(None) == d.build([None,None,None,None])
+    assert d.build(None) == d.build([None, None, None, None])
+
 
 def test_sequence_nested_embedded():
-    common(Sequence(Int8ub, Int16ub, Sequence(Int8ub, Int8ub)), b"\x01\x00\x02\x03\x04", [1,2,[3,4]], 5)
-    common(Sequence(Int8ub, Int16ub, Embedded(Sequence(Int8ub, Int8ub))), b"\x01\x00\x02\x03\x04", [1,2,3,4], 5)
+    common(Sequence(Int8ub, Int16ub, Sequence(Int8ub, Int8ub)), b"\x01\x00\x02\x03\x04", [1, 2, [3, 4]], 5)
+    common(Sequence(Int8ub, Int16ub, Embedded(Sequence(Int8ub, Int8ub))), b"\x01\x00\x02\x03\x04", [1, 2, 3, 4], 5)
+
 
 def test_array():
     common(Byte[0], b"", [], 0)
-    common(Byte[4], b"1234", [49,50,51,52], 4)
+    common(Byte[4], b"1234", [49, 50, 51, 52], 4)
 
     d = Array(3, Byte)
-    common(d, b"\x01\x02\x03", [1,2,3], 3)
-    assert d.parse(b"\x01\x02\x03additionalgarbage") == [1,2,3]
-    assert raises(d.parse, b"") == StreamError
-    assert raises(d.build, [1,2]) == RangeError
-    assert raises(d.build, [1,2,3,4,5,6,7,8]) == RangeError
+    common(d, b"\x01\x02\x03", [1, 2, 3], 3)
+    assert d.parse(b"\x01\x02\x03additionalgarbage") == [1, 2, 3]
+    with pytest.raises(StreamError):
+        d.parse(b"")
+    with pytest.raises(RangeError):
+        d.build([1, 2])
+    with pytest.raises(RangeError):
+        d.build([1, 2, 3, 4, 5, 6, 7, 8])
 
     d = Array(this.n, Byte)
-    common(d, b"\x01\x02\x03", [1,2,3], 3, n=3)
-    assert d.parse(b"\x01\x02\x03", n=3) == [1,2,3]
-    assert d.parse(b"\x01\x02\x03additionalgarbage", n=3) == [1,2,3]
-    assert raises(d.parse, b"", n=3) == StreamError
-    assert raises(d.build, [1,2], n=3) == RangeError
-    assert raises(d.build, [1,2,3,4,5,6,7,8], n=3) == RangeError
-    assert raises(d.sizeof) == SizeofError
-    assert raises(d.sizeof, n=3) == 3
+    common(d, b"\x01\x02\x03", [1, 2, 3], 3, n=3)
+    assert d.parse(b"\x01\x02\x03", n=3) == [1, 2, 3]
+    assert d.parse(b"\x01\x02\x03additionalgarbage", n=3) == [1, 2, 3]
+    with pytest.raises(StreamError):
+        d.parse(b"", n=3)
+    with pytest.raises(RangeError):
+        d.build([1, 2], n=3)
+    with pytest.raises(RangeError):
+        d.build([1, 2, 3, 4, 5, 6, 7, 8], n=3)
+    with pytest.raises(SizeofError):
+        d.sizeof()
+    assert d.sizeof(n=3) == 3
+
 
 def test_array_nontellable():
     stream = io.BytesIO(b'\x00\x00\x00\x00\x00')
     stream.tell = None
-    assert Array(5, Byte).parse_stream(stream) == [0,0,0,0,0]
+    assert Array(5, Byte).parse_stream(stream) == [0, 0, 0, 0, 0]
+
 
 def test_greedyrange():
     common(GreedyRange(Byte), b"", [], SizeofError)
-    common(GreedyRange(Byte), b"\x01\x02", [1,2], SizeofError)
-    assert GreedyRange(Byte, discard=False).parse(b"\x01\x02") == [1,2]
+    common(GreedyRange(Byte), b"\x01\x02", [1, 2], SizeofError)
+    assert GreedyRange(Byte, discard=False).parse(b"\x01\x02") == [1, 2]
     assert GreedyRange(Byte, discard=True).parse(b"\x01\x02") == []
+
 
 def test_repeatuntil():
     d = RepeatUntil(obj_ == 9, Byte)
-    common(d, b"\x02\x03\x09", [2,3,9], SizeofError)
-    assert d.parse(b"\x02\x03\x09additionalgarbage") == [2,3,9]
-    assert raises(d.parse, b"\x02\x03\x08") == StreamError
-    assert raises(d.build, [2,3,8]) == RepeatError
+    common(d, b"\x02\x03\x09", [2, 3, 9], SizeofError)
+    assert d.parse(b"\x02\x03\x09additionalgarbage") == [2, 3, 9]
+    with pytest.raises(StreamError):
+        d.parse(b"\x02\x03\x08")
+    with pytest.raises(RepeatError):
+        d.build([2, 3, 8])
 
-    d = RepeatUntil(lambda x,lst,ctx: lst[-2:] == [0,0], Byte)
+    d = RepeatUntil(lambda x, lst, ctx: lst[-2:] == [0, 0], Byte)
     # d = RepeatUntil(lst_[-2:] == [0,0], Byte)
-    assert d.parse(b"\x01\x00\x00\xff") == [1,0,0]
-    assert d.build([1,0,0,4]) == b"\x01\x00\x00"
+    assert d.parse(b"\x01\x00\x00\xff") == [1, 0, 0]
+    assert d.build([1, 0, 0, 4]) == b"\x01\x00\x00"
     d = RepeatUntil(True, Byte)
     assert d.parse(b"\x00") == [0]
     assert d.build([0]) == b"\x00"
+
 
 def test_const():
     common(Const(b"MZ"), b"MZ", b"MZ", 2)
     common(Const(b"MZ", Bytes(2)), b"MZ", b"MZ", 2)
     common(Const(255, Int32ul), b"\xff\x00\x00\x00", 255, 4)
-    assert raises(Const(b"MZ").parse, b"???") == ConstError
-    assert raises(Const(b"MZ").build, b"???") == ConstError
-    assert raises(Const(255, Int32ul).parse, b"\x00\x00\x00\x00") == ConstError
+    with pytest.raises(ConstError):
+        Const(b"MZ").parse(b"???")
+    with pytest.raises(ConstError):
+        Const(b"MZ").build(b"???")
+    with pytest.raises(ConstError):
+        Const(255, Int32ul).parse(b"\x00\x00\x00\x00")
     assert Struct(Const(b"MZ")).build({}) == b"MZ"
     # non-prefixed string literals are unicode on Python 3
-    assert raises(lambda: Const(u"no prefix string")) == StringError
+    with pytest.raises(StringError):
+        Const(u"no prefix string")
+
 
 def test_computed():
     common(Computed(255), b"", 255, 0)
     common(Computed(lambda ctx: 255), b"", 255, 0)
     assert Computed(255).build(None) == b""
     assert Struct(Computed(255)).build({}) == b""
-    assert raises(Computed(this.missing).parse, b"") == KeyError
-    assert raises(Computed(this["missing"]).parse, b"") == KeyError
+    with pytest.raises(KeyError):
+        Computed(this.missing).parse(b"")
+    with pytest.raises(KeyError):
+        Computed(this["missing"]).parse(b"")
+
 
 def test_index():
-    d = Array(3, Bytes(this._index+1))
+    d = Array(3, Bytes(this._index + 1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
-    d = GreedyRange(Bytes(this._index+1))
+    d = GreedyRange(Bytes(this._index + 1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
-    d = RepeatUntil(lambda o,l,ctx: ctx._index == 2, Bytes(this._index+1))
+    d = RepeatUntil(lambda o, l, ctx: ctx._index == 2, Bytes(this._index + 1))
     common(d, b"abbccc", [b"a", b"bb", b"ccc"])
 
     d = Array(3, Struct("i" / Index))
-    common(d, b"", [Container(i=0),Container(i=1),Container(i=2)], 0)
-    d = GreedyRange(Struct("i" / Index, "d" / Bytes(this.i+1)))
-    common(d, b"abbccc", [Container(i=0,d=b"a"),Container(i=1,d=b"bb"),Container(i=2,d=b"ccc")])
-    d = RepeatUntil(lambda o,l,ctx: ctx._index == 2, Index)
-    common(d, b"", [0,1,2])
+    common(d, b"", [Container(i=0), Container(i=1), Container(i=2)], 0)
+    d = GreedyRange(Struct("i" / Index, "d" / Bytes(this.i + 1)))
+    common(d, b"abbccc", [Container(i=0, d=b"a"), Container(i=1, d=b"bb"), Container(i=2, d=b"ccc")])
+    d = RepeatUntil(lambda o, l, ctx: ctx._index == 2, Index)
+    common(d, b"", [0, 1, 2])
+
 
 def test_rebuild():
     d = Struct(
         "count" / Rebuild(Byte, len_(this.items)),
-        "items"/Byte[this.count],
+        "items" / Byte[this.count],
     )
-    assert d.parse(b"\x02ab") == Container(count=2)(items=[97,98])
-    assert d.build(dict(count=None,items=[255])) == b"\x01\xff"
-    assert d.build(dict(count=-1,items=[255])) == b"\x01\xff"
+    assert d.parse(b"\x02ab") == Container(count=2)(items=[97, 98])
+    assert d.build(dict(count=None, items=[255])) == b"\x01\xff"
+    assert d.build(dict(count=-1, items=[255])) == b"\x01\xff"
     assert d.build(dict(items=[255])) == b"\x01\xff"
+
 
 def test_rebuild_issue_664():
     d = Struct(
@@ -546,60 +650,75 @@ def test_rebuild_issue_664():
         Check(this.upfield == 200),
         Check(this.nestedstruct.nestedfield == 255),
         "sequence" / Sequence(Computed(1), Computed(2), Computed(3), Computed(4)),
-        Check(this.sequence == [1,2,3,4]),
+        Check(this.sequence == [1, 2, 3, 4]),
         "array" / Array(4, Byte),
-        Check(this.array == [1,2,3,4]),
+        Check(this.array == [1, 2, 3, 4]),
         "greedyrange" / GreedyRange(Byte),
-        Check(this.greedyrange == [1,2,3,4]),
+        Check(this.greedyrange == [1, 2, 3, 4]),
         "repeatuntil" / RepeatUntil(obj_ == 4, Byte),
-        Check(this.repeatuntil == [1,2,3,4]),
+        Check(this.repeatuntil == [1, 2, 3, 4]),
         # Timestamp
         # Union
         # IfThenElse
     )
     obj = Container(
-        bytes = 0,
-        bytesinteger = 255,
-        pascalstring = u"text",
-        enum = "label",
-        flagsenum = dict(label=True),
+        bytes=0,
+        bytesinteger=255,
+        pascalstring=u"text",
+        enum="label",
+        flagsenum=dict(label=True),
         # nestedstruct = dict(),
         # sequence = [1,2,3,4],
-        array = [1,2,3,4],
-        greedyrange = [1,2,3,4],
-        repeatuntil = [1,2,3,4],
+        array=[1, 2, 3, 4],
+        greedyrange=[1, 2, 3, 4],
+        repeatuntil=[1, 2, 3, 4],
     )
     d.build(obj)
+
 
 def test_default():
     d = Default(Byte, 0)
     common(d, b"\xff", 255, 1)
-    d.build(None) == b"\x00"
+    assert d.build(None) == b"\x00"
+
 
 def test_check():
     common(Check(True), b"", None, 0)
     common(Check(this.x == 255), b"", None, 0, x=255)
-    common(Check(len_(this.a) == 3), b"", None, 0, a=[1,2,3])
-    assert raises(Check(False).parse, b"") == CheckError
-    assert raises(Check(this.x == 255).parse, b"", x=0) == CheckError
-    assert raises(Check(len_(this.a) == 3).parse, b"", a=[]) == CheckError
+    common(Check(len_(this.a) == 3), b"", None, 0, a=[1, 2, 3])
+    with pytest.raises(CheckError):
+        Check(False).parse(b"")
+    with pytest.raises(CheckError):
+        Check(this.x == 255).parse(b"", x=0)
+    with pytest.raises(CheckError):
+        Check(len_(this.a) == 3).parse(b"", a=[])
+
 
 def test_error():
-    assert raises(Error.parse, b"") == ExplicitError
-    assert raises(Error.build, None) == ExplicitError
-    assert ("x"/Int8sb >> IfThenElse(this.x > 0, Int8sb, Error)).parse(b"\x01\x05") == [1,5]
-    assert raises(("x"/Int8sb >> IfThenElse(this.x > 0, Int8sb, Error)).parse, b"\xff\x05") == ExplicitError
+    with pytest.raises(ExplicitError):
+        Error.parse(b"")
+    with pytest.raises(ExplicitError):
+        Error.build(None)
+    assert ("x" / Int8sb >> IfThenElse(this.x > 0, Int8sb, Error)).parse(b"\x01\x05") == [1, 5]
+    with pytest.raises(ExplicitError):
+        ("x" / Int8sb >> IfThenElse(this.x > 0, Int8sb, Error)).parse(b"\xff\x05")
+
 
 def test_focusedseq():
-    common(FocusedSeq("num", Const(b"MZ"), "num"/Byte, Terminated), b"MZ\xff", 255, SizeofError)
-    common(FocusedSeq(this._.s, Const(b"MZ"), "num"/Byte, Terminated), b"MZ\xff", 255, SizeofError, s="num")
+    common(FocusedSeq("num", Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, SizeofError)
+    common(FocusedSeq(this._.s, Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, SizeofError, s="num")
 
-    assert raises(FocusedSeq("missing", Pass).parse, b"") == UnboundLocalError
-    assert raises(FocusedSeq("missing", Pass).build, {}) == UnboundLocalError
-    assert raises(FocusedSeq("missing", Pass).sizeof) == 0
-    assert raises(FocusedSeq(this.missing, Pass).parse, b"") == KeyError
-    assert raises(FocusedSeq(this.missing, Pass).build, {}) == KeyError
-    assert raises(FocusedSeq(this.missing, Pass).sizeof) == 0
+    with pytest.raises(UnboundLocalError):
+        FocusedSeq("missing", Pass).parse(b"")
+    with pytest.raises(UnboundLocalError):
+        FocusedSeq("missing", Pass).build({})
+    assert FocusedSeq("missing", Pass).sizeof() == 0
+    with pytest.raises(KeyError):
+        FocusedSeq(this.missing, Pass).parse(b"")
+    with pytest.raises(KeyError):
+        FocusedSeq(this.missing, Pass).build({})
+    assert FocusedSeq(this.missing, Pass).sizeof() == 0
+
 
 def test_pickled():
     import pickle
@@ -607,35 +726,40 @@ def test_pickled():
     data = pickle.dumps(obj)
     common(Pickled, data, obj)
 
-@xfail(not supportsnumpy, raises=ImportError, reason="numpy not installed?")
+
+@pytest.mark.xfail(not supportsnumpy, raises=ImportError, reason="numpy not installed?")
 def test_numpy():
     import numpy
-    obj = numpy.array([1,2,3], dtype=numpy.int64)
+    obj = numpy.array([1, 2, 3], dtype=numpy.int64)
     assert numpy.array_equal(Numpy.parse(Numpy.build(obj)), obj)
+
 
 def test_namedtuple():
     coord = collections.namedtuple("coord", "x y z")
     d = NamedTuple("coord", "x y z", Array(3, Byte))
-    common(d, b"123", coord(49,50,51), 3)
+    common(d, b"123", coord(49, 50, 51), 3)
     d = NamedTuple("coord", "x y z", GreedyRange(Byte))
-    common(d, b"123", coord(49,50,51), SizeofError)
-    d = NamedTuple("coord", "x y z", Struct("x"/Byte, "y"/Byte, "z"/Byte))
-    common(d, b"123", coord(49,50,51), 3)
+    common(d, b"123", coord(49, 50, 51), SizeofError)
+    d = NamedTuple("coord", "x y z", Struct("x" / Byte, "y" / Byte, "z" / Byte))
+    common(d, b"123", coord(49, 50, 51), 3)
     d = NamedTuple("coord", "x y z", Sequence(Byte, Byte, Byte))
-    common(d, b"123", coord(49,50,51), 3)
+    common(d, b"123", coord(49, 50, 51), 3)
 
-    assert raises(lambda: NamedTuple("coord", "x y z", BitStruct("x"/Byte, "y"/Byte, "z"/Byte))) == NamedTupleError
+    with pytest.raises(NamedTupleError):
+        NamedTuple("coord", "x y z", BitStruct("x" / Byte, "y" / Byte, "z" / Byte))
+
 
 def test_timestamp():
     import arrow
     d = Timestamp(Int64ub, 1, 1970)
-    common(d, b'\x00\x00\x00\x00ZIz\x00', arrow.Arrow(2018,1,1), 8)
+    common(d, b'\x00\x00\x00\x00ZIz\x00', arrow.Arrow(2018, 1, 1), 8)
     d = Timestamp(Int64ub, 1, 1904)
-    common(d, b'\x00\x00\x00\x00\xd6o*\x80', arrow.Arrow(2018,1,1), 8)
-    d = Timestamp(Int64ub, 10**-7, 1600)
-    common(d, b'\x01\xd4\xa2.\x1a\xa8\x00\x00', arrow.Arrow(2018,1,1), 8)
+    common(d, b'\x00\x00\x00\x00\xd6o*\x80', arrow.Arrow(2018, 1, 1), 8)
+    d = Timestamp(Int64ub, 10 ** -7, 1600)
+    common(d, b'\x01\xd4\xa2.\x1a\xa8\x00\x00', arrow.Arrow(2018, 1, 1), 8)
     d = Timestamp(Int32ub, "msdos", "msdos")
-    common(d, b'H9\x8c"', arrow.Arrow(2016,1,25,17,33,4), 4)
+    common(d, b'H9\x8c"', arrow.Arrow(2016, 1, 25, 17, 33, 4), 4)
+
 
 def test_hex():
     d = Hex(Int32ub)
@@ -656,6 +780,7 @@ def test_hex():
     obj = d.parse(b"\x00\x00\x01\x02")
     assert str(obj) == "unhexlify('00000102')"
     assert str(obj) == "unhexlify('00000102')"
+
 
 def test_hexdump():
     d = HexDump(GreedyBytes)
@@ -682,6 +807,7 @@ def test_hexdump():
     assert str(obj) == repr
     assert str(obj) == repr
 
+
 def test_regression_188():
     # Hex HexDump were not inheriting subcon flags
     d = Struct(Hex(Const(b"MZ")))
@@ -691,71 +817,93 @@ def test_regression_188():
     assert d.parse(b"MZ") == Container()
     assert d.build(dict()) == b"MZ"
 
-def test_union():
-    d = Union(None, "a"/Bytes(2), "b"/Int16ub)
-    assert d.parse(b"\x01\x02") == Container(a=b"\x01\x02")(b=0x0102)
-    assert raises(Union(123, Pass).parse, b"") == KeyError
-    assert raises(Union("missing", Pass).parse, b"") == KeyError
-    assert d.build(dict(a=b"zz"))  == b"zz"
-    assert d.build(dict(b=0x0102)) == b"\x01\x02"
-    assert raises(d.build, {}) == UnionError
 
-    d = Union(None, "a"/Bytes(2), "b"/Int16ub, Pass)
+def test_union():
+    d = Union(None, "a" / Bytes(2), "b" / Int16ub)
+    assert d.parse(b"\x01\x02") == Container(a=b"\x01\x02")(b=0x0102)
+    with pytest.raises(KeyError):
+        Union(123, Pass).parse(b"")
+    with pytest.raises(KeyError):
+        Union("missing", Pass).parse( b"")
+    assert d.build(dict(a=b"zz")) == b"zz"
+    assert d.build(dict(b=0x0102)) == b"\x01\x02"
+    with pytest.raises(UnionError):
+        d.build({})
+
+    d = Union(None, "a" / Bytes(2), "b" / Int16ub, Pass)
     assert d.build({}) == b""
 
     # build skips parsefrom, invalid or not
-    assert raises(Union(123, Pass).build, {}) == b""
-    assert raises(Union("missing", Pass).build, {}) == b""
+    assert Union(123, Pass).build({}) == b""
+    assert Union("missing", Pass).build({}) == b""
 
-    assert raises(Union(None, Byte).sizeof) == SizeofError
-    assert raises(Union(None, VarInt).sizeof) == SizeofError
-    assert raises(Union(0, Byte, VarInt).sizeof) == SizeofError
-    assert raises(Union(1, Byte, VarInt).sizeof) == SizeofError
-    assert raises(Union(123, Pass).sizeof) == SizeofError
-    assert raises(Union("missing", Pass).sizeof) == SizeofError
-    assert raises(Union(this.missing, Pass).sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        Union(None, Byte).sizeof()
+    with pytest.raises(SizeofError):
+        Union(None, VarInt).sizeof()
+    with pytest.raises(SizeofError):
+        Union(0, Byte, VarInt).sizeof()
+    with pytest.raises(SizeofError):
+        Union(1, Byte, VarInt).sizeof()
+    with pytest.raises(SizeofError):
+        Union(123, Pass).sizeof()
+    with pytest.raises(SizeofError):
+        Union("missing", Pass).sizeof()
+    with pytest.raises(SizeofError):
+        Union(this.missing, Pass).sizeof()
 
     # regression check, so first subcon is not parsefrom by accident
-    assert raises(Union, Byte, VarInt) == UnionError
+    with pytest.raises(UnionError):
+        Union(Byte, VarInt)
+
 
 def test_union_embedded():
-    d = Union(None, "a"/Int16ub, Embedded(Struct("b"/Int8ub, "c"/Int8ub))) >> Byte
+    d = Union(None, "a" / Int16ub, Embedded(Struct("b" / Int8ub, "c" / Int8ub))) >> Byte
     assert d.parse(b"\x01\x02\x03") == [Container(a=0x0102, b=0x01, c=0x01), 0x01]
 
-    d = Union(None, "a"/Int16ub, Embedded(Struct("b"/Int8ub, "c"/Int8ub)))
+    d = Union(None, "a" / Int16ub, Embedded(Struct("b" / Int8ub, "c" / Int8ub)))
     assert d.parse(b"\x01\x02") == Container(a=0x0102, b=0x01, c=0x01)
     assert d.build(dict(a=0x0102)) == b"\x01\x02"
     assert d.build(dict(b=0x01)) == b"\x01"
     assert d.build(dict(c=0x01)) == b"\x01"
-    assert raises(d.build, dict()) == UnionError
+    with pytest.raises(UnionError):
+        d.build(dict())
 
-@xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
+
+@pytest.mark.xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
 def test_union_kwctor():
     d = Union(None, a=Int8ub, b=Int16ub, c=Int32ub)
-    assert d.parse(b"\x01\x02\x03\x04") == Container(a=0x01,b=0x0102,c=0x01020304)
+    assert d.parse(b"\x01\x02\x03\x04") == Container(a=0x01, b=0x0102, c=0x01020304)
     assert d.build(Container(c=0x01020304)) == b"\x01\x02\x03\x04"
+
 
 def test_union_issue_348():
     d = Union(None,
-        Int8=Prefixed(Int16ub, GreedyRange(Int8ub)),
-        Int16=Prefixed(Int16ub, GreedyRange(Int16ub)),
-        Int32=Prefixed(Int16ub, GreedyRange(Int32ub)),
-    )
-    assert d.parse(b'\x00\x04\x11\x22\x33\x44') == {'Int16': [4386, 13124], 'Int32': [287454020], 'Int8': [17, 34, 51, 68]}
+              Int8=Prefixed(Int16ub, GreedyRange(Int8ub)),
+              Int16=Prefixed(Int16ub, GreedyRange(Int16ub)),
+              Int32=Prefixed(Int16ub, GreedyRange(Int32ub)),
+              )
+    assert d.parse(b'\x00\x04\x11\x22\x33\x44') == {'Int16': [4386, 13124], 'Int32': [287454020],
+                                                    'Int8': [17, 34, 51, 68]}
     assert d.build(dict(Int16=[4386, 13124])) == b'\x00\x04\x11\x22\x33\x44'
     assert d.build(dict(Int32=[287454020])) == b'\x00\x04\x11\x22\x33\x44'
+
 
 def test_select():
     d = Select(Int32ub, Int16ub, Int8ub)
     common(d, b"\x00\x00\x00\x07", 7)
-    assert raises(Select(Int32ub, Int16ub).parse, b"") == SelectError
-    assert raises(Select(Byte).sizeof) == SizeofError
+    with pytest.raises(SelectError):
+        Select(Int32ub, Int16ub).parse(b"")
+    with pytest.raises(SizeofError):
+        Select(Byte).sizeof()
 
-@xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
+
+@pytest.mark.xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
 def test_select_kwctor():
     d = Select(a=Int8ub, b=Int16ub, c=Int32ub)
     assert d.parse(b"\x01\x02\x03\x04") == 0x01
     assert d.build(0x01020304) == b"\x01\x02\x03\x04"
+
 
 def test_optional():
     d = Optional(Int32ul)
@@ -763,27 +911,33 @@ def test_optional():
     assert d.build(1) == b"\x01\x00\x00\x00"
     assert d.parse(b"???") == None
     assert d.build(None) == b""
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_if():
-    common(If(True,  Byte), b"\x01", 1, 1)
+    common(If(True, Byte), b"\x01", 1, 1)
     common(If(False, Byte), b"", None, 0)
 
+
 def test_ifthenelse():
-    common(IfThenElse(True,  Int8ub, Int16ub), b"\x01", 1, 1)
+    common(IfThenElse(True, Int8ub, Int16ub), b"\x01", 1, 1)
     common(IfThenElse(False, Int8ub, Int16ub), b"\x00\x01", 1, 2)
 
+
 def test_switch():
-    d = Switch(this.x, {1:Int8ub, 2:Int16ub, 4:Int32ub})
+    d = Switch(this.x, {1: Int8ub, 2: Int16ub, 4: Int32ub})
     common(d, b"\x01", 0x01, 1, x=1)
     common(d, b"\x01\x02", 0x0102, 2, x=2)
     assert d.parse(b"", x=255) == None
     assert d.build(None, x=255) == b""
-    assert raises(d.sizeof) == SizeofError
-    assert raises(d.sizeof, x=1) == 1
+    with pytest.raises(SizeofError):
+        d.sizeof()
+    assert d.sizeof(x=1) == 1
 
     d = Switch(this.x, {}, default=Byte)
     common(d, b"\x01", 1, 1, x=255)
+
 
 def test_switch_issue_357():
     inner = Struct(
@@ -804,6 +958,7 @@ def test_switch_issue_357():
     )
     assert st1.parse(b"") == st2.parse(b"")
 
+
 def test_embeddedswitch():
     d = EmbeddedSwitch(
         Struct(
@@ -818,6 +973,7 @@ def test_embeddedswitch():
     common(d, b"\x00\x00", Container(type=0, name=u"", value=None))
     common(d, b"\x01\x00", Container(type=1, name=None, value=0))
 
+
 def test_embeddedswitch_issue_684():
     d = EmbeddedSwitch(
         Struct(
@@ -831,58 +987,70 @@ def test_embeddedswitch_issue_684():
     )
     d.parse(b"\x01\xff") == Container(type=1, value=None)
 
+
 def test_stopif():
-    d = Struct("x"/Byte, StopIf(this.x == 0), "y"/Byte)
+    d = Struct("x" / Byte, StopIf(this.x == 0), "y" / Byte)
     common(d, b"\x00", Container(x=0))
-    common(d, b"\x01\x02", Container(x=1,y=2))
+    common(d, b"\x01\x02", Container(x=1, y=2))
 
-    d = Sequence("x"/Byte, StopIf(this.x == 0), "y"/Byte)
+    d = Sequence("x" / Byte, StopIf(this.x == 0), "y" / Byte)
     common(d, b"\x00", [0])
-    common(d, b"\x01\x02", [1,None,2])
+    common(d, b"\x01\x02", [1, None, 2])
 
-    d = GreedyRange(FocusedSeq("x", "x"/Byte, StopIf(this.x == 0)))
+    d = GreedyRange(FocusedSeq("x", "x" / Byte, StopIf(this.x == 0)))
     assert d.parse(b"\x01\x00?????") == [1]
     assert d.build([]) == b""
     assert d.build([0]) == b"\x00"
     assert d.build([1]) == b"\x01"
-    assert d.build([1,0,2]) == b"\x01\x00"
+    assert d.build([1, 0, 2]) == b"\x01\x00"
+
 
 def test_padding():
     common(Padding(4), b"\x00\x00\x00\x00", None, 4)
-    assert raises(Padding, 4, pattern=b"?????") == PaddingError
-    assert raises(Padding, 4, pattern=u"?") == PaddingError
+    with pytest.raises(PaddingError):
+        Padding(4, pattern=b"?????")
+    with pytest.raises(PaddingError):
+        Padding(4, pattern=u"?")
+
 
 def test_padded():
     common(Padded(4, Byte), b"\x01\x00\x00\x00", 1, 4)
-    assert raises(Padded, 4, Byte, pattern=b"?????") == PaddingError
-    assert raises(Padded, 4, Byte, pattern=u"?") == PaddingError
+    with pytest.raises(PaddingError):
+        Padded(4, Byte, pattern=b"?????")
+    with pytest.raises(PaddingError):
+        Padded(4, Byte, pattern=u"?")
     assert Padded(4, VarInt).sizeof() == 4
     assert Padded(4, Byte[this.missing]).sizeof() == 4
 
+
 def test_aligned():
     common(Aligned(4, Byte), b"\x01\x00\x00\x00", 1, 4)
-    common(Struct("a"/Aligned(4, Byte), "b"/Byte), b"\x01\x00\x00\x00\x02", Container(a=1)(b=2), 5)
+    common(Struct("a" / Aligned(4, Byte), "b" / Byte), b"\x01\x00\x00\x00\x02", Container(a=1)(b=2), 5)
     assert Aligned(4, Int8ub).build(1) == b"\x01\x00\x00\x00"
     assert Aligned(4, Int16ub).build(1) == b"\x00\x01\x00\x00"
     assert Aligned(4, Int32ub).build(1) == b"\x00\x00\x00\x01"
     assert Aligned(4, Int64ub).build(1) == b"\x00\x00\x00\x00\x00\x00\x00\x01"
     d = Aligned(this.m, Byte)
     common(d, b"\xff\x00", 255, 2, m=2)
-    assert raises(d.sizeof) == SizeofError
-    assert raises(d.sizeof, m=2) == 2
+    with pytest.raises(SizeofError):
+        d.sizeof()
+    assert d.sizeof(m=2) == 2
+
 
 def test_alignedstruct():
-    d = AlignedStruct(4, "a"/Int8ub, "b"/Int16ub)
+    d = AlignedStruct(4, "a" / Int8ub, "b" / Int16ub)
     common(d, b"\x01\x00\x00\x00\x00\x05\x00\x00", Container(a=1)(b=5), 8)
 
+
 def test_bitstruct():
-    d = BitStruct("a"/BitsInteger(3), "b"/Flag, Padding(3), "c"/Nibble, "d"/BitsInteger(5))
+    d = BitStruct("a" / BitsInteger(3), "b" / Flag, Padding(3), "c" / Nibble, "d" / BitsInteger(5))
     common(d, b"\xe1\x1f", Container(a=7)(b=False)(c=8)(d=31), 2)
-    d = BitStruct("a"/BitsInteger(3), "b"/Flag, Padding(3), "c"/Nibble, "sub"/Struct("d"/Nibble, "e"/Bit))
+    d = BitStruct("a" / BitsInteger(3), "b" / Flag, Padding(3), "c" / Nibble, "sub" / Struct("d" / Nibble, "e" / Bit))
     common(d, b"\xe1\x1f", Container(a=7)(b=False)(c=8)(sub=Container(d=15)(e=1)), 2)
 
+
 def test_pointer():
-    common(Pointer(2,             Byte), b"\x00\x00\x07", 7, 0)
+    common(Pointer(2, Byte), b"\x00\x00\x07", 7, 0)
     common(Pointer(lambda ctx: 2, Byte), b"\x00\x00\x07", 7, 0)
 
     d = Struct(
@@ -890,6 +1058,7 @@ def test_pointer():
         'x' / Pointer(0, Byte, stream=this.inner._io),
     )
     d.parse(bytes(20)) == 0
+
 
 def test_peek():
     d = Peek(Int8ub)
@@ -901,46 +1070,55 @@ def test_peek():
     d = Peek(VarInt)
     assert d.sizeof() == 0
 
-    d = Struct("a"/Peek(Int8ub), "b"/Int16ub)
+    d = Struct("a" / Peek(Int8ub), "b" / Int16ub)
     common(d, b"\x01\x02", Container(a=0x01)(b=0x0102), 2)
-    d = Struct(Peek("a"/Byte), Peek("b"/Int16ub))
+    d = Struct(Peek("a" / Byte), Peek("b" / Int16ub))
     d.parse(b"\x01\x02") == Container(a=0x01)(b=0x0102)
     d.build(Container(a=0x01)(b=0x0102)) == b"\x01\x02"
     d.sizeof() == 0
+
 
 def test_seek():
     d = Seek(5)
     assert d.parse(b"") == 5
     assert d.build(None) == b""
-    assert (d >> Byte).parse(b"01234x") == [5,120]
-    assert (d >> Byte).build([5,255]) == b"\x00\x00\x00\x00\x00\xff"
-    assert (Bytes(10) >> d >> Byte).parse(b"0123456789") == [b"0123456789",5,ord('5')]
-    assert (Bytes(10) >> d >> Byte).build([b"0123456789",None,255]) == b"01234\xff6789"
-    assert Struct("data"/Bytes(10), d, "addin"/Byte).parse(b"0123456789") == Container(data=b"0123456789")(addin=53)
-    assert Struct("data"/Bytes(10), d, "addin"/Byte).build(dict(data=b"0123456789",addin=53)) == b"01234\x356789"
-    assert (Seek(10,1) >> Seek(-5,1) >> Bytes(1)).parse(b"0123456789") == [10,5,b"5"]
-    assert (Seek(10,1) >> Seek(-5,1) >> Bytes(1)).build([None,None,255]) == b"\x00\x00\x00\x00\x00\xff"
-    assert raises(d.sizeof) == SizeofError
+    assert (d >> Byte).parse(b"01234x") == [5, 120]
+    assert (d >> Byte).build([5, 255]) == b"\x00\x00\x00\x00\x00\xff"
+    assert (Bytes(10) >> d >> Byte).parse(b"0123456789") == [b"0123456789", 5, ord('5')]
+    assert (Bytes(10) >> d >> Byte).build([b"0123456789", None, 255]) == b"01234\xff6789"
+    assert Struct("data" / Bytes(10), d, "addin" / Byte).parse(b"0123456789") == Container(data=b"0123456789")(addin=53)
+    assert Struct("data" / Bytes(10), d, "addin" / Byte).build(dict(data=b"0123456789", addin=53)) == b"01234\x356789"
+    assert (Seek(10, 1) >> Seek(-5, 1) >> Bytes(1)).parse(b"0123456789") == [10, 5, b"5"]
+    assert (Seek(10, 1) >> Seek(-5, 1) >> Bytes(1)).build([None, None, 255]) == b"\x00\x00\x00\x00\x00\xff"
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_tell():
     assert Tell.parse(b"") == 0
     assert Tell.build(None) == b""
     assert Tell.sizeof() == 0
-    assert Struct("a"/Tell, "b"/Byte, "c"/Tell).parse(b"\xff") == Container(a=0)(b=255)(c=1)
-    assert Struct("a"/Tell, "b"/Byte, "c"/Tell).build(Container(a=0)(b=255)(c=1)) == b"\xff"
-    assert Struct("a"/Tell, "b"/Byte, "c"/Tell).build(dict(b=255)) == b"\xff"
+    assert Struct("a" / Tell, "b" / Byte, "c" / Tell).parse(b"\xff") == Container(a=0)(b=255)(c=1)
+    assert Struct("a" / Tell, "b" / Byte, "c" / Tell).build(Container(a=0)(b=255)(c=1)) == b"\xff"
+    assert Struct("a" / Tell, "b" / Byte, "c" / Tell).build(dict(b=255)) == b"\xff"
+
 
 def test_pass():
     common(Pass, b"", None, 0)
-    common(Struct("empty"/Pass), b"", Container(empty=None), 0)
+    common(Struct("empty" / Pass), b"", Container(empty=None), 0)
+
 
 def test_terminated():
     common(Terminated, b"", None, SizeofError)
     common(Struct(Terminated), b"", Container(), SizeofError)
     common(BitStruct(Terminated), b"", Container(), SizeofError)
-    assert raises(Terminated.parse, b"x") == TerminatedError
-    assert raises(Struct(Terminated).parse, b"x") == TerminatedError
-    assert raises(BitStruct(Terminated).parse, b"x") == TerminatedError
+    with pytest.raises(TerminatedError):
+        Terminated.parse(b"x")
+    with pytest.raises(TerminatedError):
+        Struct(Terminated).parse(b"x")
+    with pytest.raises(TerminatedError):
+        BitStruct(Terminated).parse(b"x")
+
 
 def test_rawcopy():
     d = RawCopy(Byte)
@@ -951,10 +1129,11 @@ def test_rawcopy():
     d = RawCopy(Padding(1))
     assert d.build(None) == b'\x00'
 
+
 def test_rawcopy_issue_289():
     # When you build from a full dict that has all the keys, the if data kicks in, and replaces the context entry with a subset of a dict it had to begin with.
     st = Struct(
-        "raw" / RawCopy(Struct("x"/Byte, "len"/Byte)),
+        "raw" / RawCopy(Struct("x" / Byte, "len" / Byte)),
         "array" / Byte[this.raw.value.len],
     )
     print(st.parse(b"\x01\x02\xff\x00"))
@@ -963,22 +1142,26 @@ def test_rawcopy_issue_289():
     # this is not buildable, array is not passed and cannot be deduced from raw data
     # print(st.build(dict(raw=dict(data=b"\x01\x02\xff\x00"))))
 
+
 def test_rawcopy_issue_358():
     # RawCopy overwritten context value with subcon return obj regardless of None
-    d = Struct("a"/RawCopy(Byte), "check"/Check(this.a.value == 255))
+    d = Struct("a" / RawCopy(Byte), "check" / Check(this.a.value == 255))
     assert d.build(dict(a=dict(value=255))) == b"\xff"
+
 
 def test_byteswapped():
     d = ByteSwapped(Bytes(5))
     common(d, b"12345", b"54321", 5)
-    d = ByteSwapped(Struct("a"/Byte, "b"/Byte))
+    d = ByteSwapped(Struct("a" / Byte, "b" / Byte))
     common(d, b"\x01\x02", Container(a=2)(b=1), 2)
 
+
 def test_byteswapped_from_issue_70():
-    d = ByteSwapped(BitStruct("flag1"/Bit, "flag2"/Bit, Padding(2), "number"/BitsInteger(16), Padding(4)))
+    d = ByteSwapped(BitStruct("flag1" / Bit, "flag2" / Bit, Padding(2), "number" / BitsInteger(16), Padding(4)))
     assert d.parse(b'\xd0\xbc\xfa') == Container(flag1=1)(flag2=1)(number=0xabcd)
-    d = BitStruct("flag1"/Bit, "flag2"/Bit, Padding(2), "number"/BitsInteger(16), Padding(4))
+    d = BitStruct("flag1" / Bit, "flag2" / Bit, Padding(2), "number" / BitsInteger(16), Padding(4))
     assert d.parse(b'\xfa\xbc\xd1') == Container(flag1=1)(flag2=1)(number=0xabcd)
+
 
 def test_bitsswapped():
     d = BitsSwapped(Bytes(2))
@@ -987,10 +1170,11 @@ def test_bitsswapped():
     common(d, b"\xf2", b'\x01\x01\x01\x01\x00\x00\x01\x00', 1)
     d = BitsSwapped(Bitwise(Bytes(8)))
     common(d, b"\xf2", b'\x00\x01\x00\x00\x01\x01\x01\x01', 1)
-    d = BitStruct("a"/Nibble, "b"/Nibble)
+    d = BitStruct("a" / Nibble, "b" / Nibble)
     common(d, b"\xf1", Container(a=15)(b=1), 1)
-    d = BitsSwapped(BitStruct("a"/Nibble, "b"/Nibble))
+    d = BitsSwapped(BitStruct("a" / Nibble, "b" / Nibble))
     common(d, b"\xf1", Container(a=8)(b=15), 1)
+
 
 def test_prefixed():
     d = Prefixed(Byte, Int16ul)
@@ -1000,35 +1184,45 @@ def test_prefixed():
     d = Prefixed(VarInt, GreedyBytes)
     assert d.parse(b"\x03abc??????") == b"abc"
     assert d.build(b"abc") == b'\x03abc'
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
     d = Prefixed(Byte, Sequence(Peek(Byte), Int16ub, GreedyBytes))
-    assert d.parse(b"\x02\x00\xff????????") == [0,255,b'']
+    assert d.parse(b"\x02\x00\xff????????") == [0, 255, b'']
 
     d = Prefixed(Byte, GreedyBytes)
-    common(d, b"\x0a"+bytes(10), bytes(10), SizeofError)
+    common(d, b"\x0a" + bytes(10), bytes(10), SizeofError)
     d = Prefixed(Byte, GreedyString("utf-8"))
-    common(d, b"\x0a"+bytes(10), u"\x00"*10, SizeofError)
+    common(d, b"\x0a" + bytes(10), u"\x00" * 10, SizeofError)
+
 
 def test_prefixedarray():
-    common(PrefixedArray(Byte,Byte), b"\x02\x0a\x0b", [10,11], SizeofError)
-    assert PrefixedArray(Byte, Byte).parse(b"\x03\x01\x02\x03") == [1,2,3]
+    common(PrefixedArray(Byte, Byte), b"\x02\x0a\x0b", [10, 11], SizeofError)
+    assert PrefixedArray(Byte, Byte).parse(b"\x03\x01\x02\x03") == [1, 2, 3]
     assert PrefixedArray(Byte, Byte).parse(b"\x00") == []
-    assert PrefixedArray(Byte, Byte).build([1,2,3]) == b"\x03\x01\x02\x03"
-    assert raises(PrefixedArray(Byte, Byte).parse, b"") == StreamError
-    assert raises(PrefixedArray(Byte, Byte).parse, b"\x03\x01") == StreamError
-    assert raises(PrefixedArray(Byte, Byte).sizeof) == SizeofError
+    assert PrefixedArray(Byte, Byte).build([1, 2, 3]) == b"\x03\x01\x02\x03"
+    with pytest.raises(StreamError):
+        PrefixedArray(Byte, Byte).parse(b"")
+    with pytest.raises(StreamError):
+        PrefixedArray(Byte, Byte).parse(b"\x03\x01")
+    with pytest.raises(SizeofError):
+        PrefixedArray(Byte, Byte).sizeof()
+
 
 def test_fixedsized():
     d = FixedSized(10, Byte)
     common(d, b'\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00', 255, 10)
     d = FixedSized(-255, Byte)
-    assert raises(d.parse, bytes(10)) == PaddingError
-    assert raises(d.build, 0) == PaddingError
-    assert raises(d.sizeof) == PaddingError
+    with pytest.raises(PaddingError):
+        d.parse(bytes(10))
+    with pytest.raises(PaddingError):
+        d.build(0)
+    with pytest.raises(PaddingError):
+        d.sizeof()
     d = FixedSized(10, GreedyBytes)
     common(d, bytes(10), bytes(10), 10)
     d = FixedSized(10, GreedyString("utf-8"))
-    common(d, bytes(10), u"\x00"*10, 10)
+    common(d, bytes(10), u"\x00" * 10, 10)
+
 
 def test_nullterminated():
     d = NullTerminated(Byte)
@@ -1042,7 +1236,8 @@ def test_nullterminated():
     d = NullTerminated(GreedyBytes, consume=False) >> GreedyBytes
     assert d.parse(b'\xff\x00') == [b'\xff', b'\x00']
     d = NullTerminated(GreedyBytes, require=True)
-    assert raises(d.parse, b'\xff') == StreamError
+    with pytest.raises(StreamError):
+        d.parse(b'\xff')
     d = NullTerminated(GreedyBytes, require=False)
     assert d.parse(b'\xff') == b'\xff'
     d = NullTerminated(GreedyBytes)
@@ -1051,6 +1246,7 @@ def test_nullterminated():
     common(d, bytes(1), u"", SizeofError)
     d = NullTerminated(GreedyBytes, term=bytes(2))
     common(d, b"\x01\x00\x00\x02\x00\x00", b"\x01\x00\x00\x02", SizeofError)
+
 
 def test_nullstripped():
     d = NullStripped(GreedyBytes)
@@ -1067,6 +1263,7 @@ def test_nullstripped():
     d = NullStripped(GreedyBytes, pad=bytes(2))
     assert d.parse(bytes(10)) == b""
     assert d.parse(bytes(11)) == b""
+
 
 def test_restreamdata():
     d = RestreamData(b"\x01", Int8ub)
@@ -1086,29 +1283,31 @@ def test_restreamdata():
     assert d.parse(b"\x01\x02\x00") == 0x0102
     assert d.build(None) == b''
 
-@xfail(reason="unknown, either StreamError or KeyError due to this.entire or this._.entire")
+
+@pytest.mark.xfail(reason="unknown, either StreamError or KeyError due to this.entire or this._.entire")
 def test_restreamdata_issue_701():
     d = Struct(
         'entire' / GreedyBytes,
         'ac' / RestreamData(this.entire, Struct(
             'a' / Byte,
-            Bytes(len_(this._.entire)-1),
+            Bytes(len_(this._.entire) - 1),
             'c' / Byte,
         )),
     )
     # StreamError: stream read less then specified amount, expected 1, found 0
-    assert d.parse(b'\x01GGGGGGGGGG\x02') == Container(entire=b'\x01GGGGGGGGGG\x02', ac=Container(a=1,b=2))
+    assert d.parse(b'\x01GGGGGGGGGG\x02') == Container(entire=b'\x01GGGGGGGGGG\x02', ac=Container(a=1, b=2))
 
     d = FocusedSeq('ac'
-        'entire' / GreedyBytes,
-        'ac' / RestreamData(this.entire, Struct(
-            'a' / Byte,
-            Bytes(len_(this._.entire)-1),
-            'c' / Byte,
-        )),
-    )
+                   'entire' / GreedyBytes,
+                   'ac' / RestreamData(this.entire, Struct(
+                       'a' / Byte,
+                       Bytes(len_(this._.entire) - 1),
+                       'c' / Byte,
+                   )),
+                   )
     # KeyError: 'entire'
-    assert d.parse(b'\x01GGGGGGGGGG\x02') == Container(a=1,b=2)
+    assert d.parse(b'\x01GGGGGGGGGG\x02') == Container(a=1, b=2)
+
 
 def test_transformed():
     d = Transformed(Bytes(16), bytes2bits, 2, bits2bytes, 2)
@@ -1116,33 +1315,39 @@ def test_transformed():
     d = Transformed(GreedyBytes, bytes2bits, None, bits2bytes, None)
     common(d, bytes(2), bytes(16), SizeofError)
     d = Transformed(GreedyString("utf-8"), bytes2bits, None, bits2bytes, None)
-    common(d, bytes(2), u"\x00"*16, SizeofError)
+    common(d, bytes(2), u"\x00" * 16, SizeofError)
+
 
 def test_transformed_issue_676():
     d = Struct(
-         'inner1' / BitStruct(
-             'a' / Default(BitsInteger(8), 0),
-         ),
-         'inner2' / BitStruct(
-             'a' / Default(BitsInteger(lambda this: 8), 0),
-         ),
-         Probe(),
-         Check(this.inner1.a == 0),
-         Check(this.inner2.a == 0),
+        'inner1' / BitStruct(
+            'a' / Default(BitsInteger(8), 0),
+        ),
+        'inner2' / BitStruct(
+            'a' / Default(BitsInteger(lambda this: 8), 0),
+        ),
+        Probe(),
+        Check(this.inner1.a == 0),
+        Check(this.inner2.a == 0),
     )
     d.build({})
+
 
 def test_restreamed():
     d = Restreamed(Int16ub, ident, 1, ident, 1, ident)
     common(d, b"\x00\x01", 1, 2)
     d = Restreamed(VarInt, ident, 1, ident, 1, ident)
-    assert raises(d.sizeof) == SizeofError
-    d = Restreamed(Bytes(2), lambda b: b*2, 1, lambda b: b[0:1], 1, lambda n: n*2)
+    with pytest.raises(SizeofError):
+        d.sizeof()
+    d = Restreamed(Bytes(2), lambda b: b * 2, 1, lambda b: b[0:1], 1, lambda n: n * 2)
     common(d, b"aa", b"aa", 4)
+
 
 def test_restreamed_partial_read():
     d = Restreamed(Bytes(255), ident, 1, ident, 1, ident)
-    assert raises(d.parse, b"") == StreamError
+    with pytest.raises(StreamError):
+        d.parse(b"")
+
 
 def test_processxor():
     d = ProcessXor(0, Int16ub)
@@ -1163,6 +1368,7 @@ def test_processxor():
     d = ProcessXor(b"XXXXX", GreedyString("utf-8"))
     common(d, b"\x00", u"X", SizeofError)
 
+
 def test_processrotateleft():
     d = ProcessRotateLeft(0, 1, GreedyBytes)
     common(d, bytes(10), bytes(10))
@@ -1172,6 +1378,7 @@ def test_processrotateleft():
     common(d, b'\x0f\xf0', b'\xf0\x0f')
     d = ProcessRotateLeft(4, 2, GreedyBytes)
     common(d, b'\x0f\xf0', b'\xff\x00')
+
 
 def test_checksum():
     d = Struct(
@@ -1183,9 +1390,11 @@ def test_checksum():
     )
 
     c = hashlib.sha512(b"\x01\x02").digest()
-    assert d.parse(b"\x01\x02"+c) == Container(fields=dict(data=b"\x01\x02", value=Container(a=1)(b=2), offset1=0, offset2=2, length=2))(checksum=c)
-    assert d.build(dict(fields=dict(data=b"\x01\x02"))) == b"\x01\x02"+c
-    assert d.build(dict(fields=dict(value=dict(a=1,b=2)))) == b"\x01\x02"+c
+    assert d.parse(b"\x01\x02" + c) == Container(
+        fields=dict(data=b"\x01\x02", value=Container(a=1)(b=2), offset1=0, offset2=2, length=2))(checksum=c)
+    assert d.build(dict(fields=dict(data=b"\x01\x02"))) == b"\x01\x02" + c
+    assert d.build(dict(fields=dict(value=dict(a=1, b=2)))) == b"\x01\x02" + c
+
 
 def test_checksum_nonbytes_issue_323():
     st = Struct(
@@ -1193,68 +1402,84 @@ def test_checksum_nonbytes_issue_323():
         "checksum" / Checksum(Byte, lambda vals: sum(vals) & 0xFF, this.vals),
     )
     assert st.parse(b"\x00\x00\x00") == Container(vals=[0, 0])(checksum=0)
-    assert raises(st.parse, b"\x00\x00\x01") == ChecksumError
+    with pytest.raises(ChecksumError):
+        st.parse(b"\x00\x00\x01")
+
 
 def test_compressed_zlib():
     zeros = bytes(10000)
     d = Compressed(GreedyBytes, "zlib")
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 50
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
     d = Compressed(GreedyBytes, "zlib", level=9)
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 50
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
 
-@xfail(not PY>=(3,2), raises=AttributeError, reason="gzip module was added in 3.2")
+@pytest.mark.xfail(not PY >= (3, 2), raises=AttributeError, reason="gzip module was added in 3.2")
 def test_compressed_gzip():
     zeros = bytes(10000)
     d = Compressed(GreedyBytes, "gzip")
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 50
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
     d = Compressed(GreedyBytes, "gzip", level=9)
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 50
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_compressed_bzip2():
     zeros = bytes(10000)
     d = Compressed(GreedyBytes, "bzip2")
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 50
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
     d = Compressed(GreedyBytes, "bzip2", level=9)
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 50
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
 
-@xfail(not PY>=(3,3), raises=ImportError, reason="lzma module was added in 3.3")
+
+@pytest.mark.xfail(not PY >= (3, 3), raises=ImportError, reason="lzma module was added in 3.3")
 def test_compressed_lzma():
     zeros = bytes(10000)
     d = Compressed(GreedyBytes, "lzma")
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 200
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
     d = Compressed(GreedyBytes, "lzma", level=9)
     assert d.parse(d.build(zeros)) == zeros
     assert len(d.build(zeros)) < 200
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_compressed_prefixed():
     zeros = bytes(10000)
     d = Prefixed(VarInt, Compressed(GreedyBytes, "zlib"))
-    st = Struct("one"/d, "two"/d)
-    assert st.parse(st.build(Container(one=zeros,two=zeros))) == Container(one=zeros,two=zeros)
-    assert raises(d.sizeof) == SizeofError
+    st = Struct("one" / d, "two" / d)
+    assert st.parse(st.build(Container(one=zeros, two=zeros))) == Container(one=zeros, two=zeros)
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_rebuffered():
     data = b"0" * 1000
-    assert Rebuffered(Array(1000,Byte)).parse_stream(io.BytesIO(data)) == [48]*1000
-    assert Rebuffered(Array(1000,Byte), tailcutoff=50).parse_stream(io.BytesIO(data)) == [48]*1000
+    assert Rebuffered(Array(1000, Byte)).parse_stream(io.BytesIO(data)) == [48] * 1000
+    assert Rebuffered(Array(1000, Byte), tailcutoff=50).parse_stream(io.BytesIO(data)) == [48] * 1000
     assert Rebuffered(Byte).sizeof() == 1
-    assert raises(Rebuffered(Byte).sizeof) == 1
-    assert raises(Rebuffered(VarInt).sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        Rebuffered(VarInt).sizeof()
+
 
 def test_lazy():
     d = Struct(
@@ -1270,6 +1495,7 @@ def test_lazy():
     assert d.build(0) == b'\x00'
     assert d.build(x) == b'\x00'
     assert d.sizeof() == 1
+
 
 def test_lazystruct():
     d = LazyStruct(
@@ -1293,7 +1519,9 @@ def test_lazystruct():
     assert str(obj) == "<LazyContainer: 5 items cached, 5 subcons>"
     assert d.build(obj) == b"\x00\x00\x01\x00\x02\x00\x01\x00"
     assert d.build(Container(obj)) == b"\x00\x00\x01\x00\x02\x00\x01\x00"
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_lazyarray():
     d = LazyArray(5, Int8ub)
@@ -1301,14 +1529,14 @@ def test_lazyarray():
     assert repr(obj) == "<LazyListContainer: 0 of 5 items cached>"
     for i in range(5):
         assert obj[i] == i
-    assert obj[:] == [0,1,2,3,4]
-    assert obj == [0,1,2,3,4]
-    assert list(obj) == [0,1,2,3,4]
+    assert obj[:] == [0, 1, 2, 3, 4]
+    assert obj == [0, 1, 2, 3, 4]
+    assert list(obj) == [0, 1, 2, 3, 4]
     assert len(obj) == 5
     assert repr(obj) == "<LazyListContainer: 5 of 5 items cached>"
     assert str(obj) == "<LazyListContainer: 5 of 5 items cached>"
-    assert d.build([0,1,2,3,4]) == b"\x00\x01\x02\x03\x04"
-    assert d.build(ListContainer([0,1,2,3,4])) == b"\x00\x01\x02\x03\x04"
+    assert d.build([0, 1, 2, 3, 4]) == b"\x00\x01\x02\x03\x04"
+    assert d.build(ListContainer([0, 1, 2, 3, 4])) == b"\x00\x01\x02\x03\x04"
     assert d.build(obj) == b"\x00\x01\x02\x03\x04"
     assert d.build(obj[:]) == b"\x00\x01\x02\x03\x04"
     assert d.sizeof() == 5
@@ -1318,17 +1546,19 @@ def test_lazyarray():
     assert repr(obj) == "<LazyListContainer: 5 of 5 items cached>"
     for i in range(5):
         assert obj[i] == i
-    assert obj[:] == [0,1,2,3,4]
-    assert obj == [0,1,2,3,4]
-    assert list(obj) == [0,1,2,3,4]
+    assert obj[:] == [0, 1, 2, 3, 4]
+    assert obj == [0, 1, 2, 3, 4]
+    assert list(obj) == [0, 1, 2, 3, 4]
     assert len(obj) == 5
     assert repr(obj) == "<LazyListContainer: 5 of 5 items cached>"
     assert str(obj) == "<LazyListContainer: 5 of 5 items cached>"
-    assert d.build([0,1,2,3,4]) == b"\x00\x01\x02\x03\x04"
-    assert d.build(ListContainer([0,1,2,3,4])) == b"\x00\x01\x02\x03\x04"
+    assert d.build([0, 1, 2, 3, 4]) == b"\x00\x01\x02\x03\x04"
+    assert d.build(ListContainer([0, 1, 2, 3, 4])) == b"\x00\x01\x02\x03\x04"
     assert d.build(obj) == b"\x00\x01\x02\x03\x04"
     assert d.build(obj[:]) == b"\x00\x01\x02\x03\x04"
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
+
 
 def test_lazybound():
     d = LazyBound(lambda: Byte)
@@ -1350,34 +1580,42 @@ def test_lazybound():
         data = x.next
         print(x)
 
+
 def test_expradapter():
     MulDiv = ExprAdapter(Byte, obj_ * 7, obj_ // 7)
     assert MulDiv.parse(b"\x06") == 42
     assert MulDiv.build(42) == b"\x06"
     assert MulDiv.sizeof() == 1
 
-    Ident = ExprAdapter(Byte, obj_-1, obj_+1)
+    Ident = ExprAdapter(Byte, obj_ - 1, obj_ + 1)
     assert Ident.parse(b"\x02") == 1
     assert Ident.build(1) == b"\x02"
     assert Ident.sizeof() == 1
 
+
 def test_exprsymmetricadapter():
     pass
 
+
 def test_exprvalidator():
-    One = ExprValidator(Byte, lambda obj,ctx: obj in [1,3,5])
+    One = ExprValidator(Byte, lambda obj, ctx: obj in [1, 3, 5])
     assert One.parse(b"\x01") == 1
-    assert raises(One.parse, b"\xff") == ValidationError
+    with pytest.raises(ValidationError):
+        One.parse(b"\xff")
     assert One.build(5) == b"\x05"
-    assert raises(One.build, 255) == ValidationError
+    with pytest.raises(ValidationError):
+        One.build(255)
     assert One.sizeof() == 1
+
 
 def test_ipaddress_adapter_issue_95():
     class IpAddressAdapter(Adapter):
         def _encode(self, obj, context, path):
             return list(map(int, obj.split(".")))
+
         def _decode(self, obj, context, path):
             return "{0}.{1}.{2}.{3}".format(*obj)
+
     IpAddress = IpAddressAdapter(Byte[4])
 
     assert IpAddress.parse(b"\x7f\x80\x81\x82") == "127.128.129.130"
@@ -1385,39 +1623,48 @@ def test_ipaddress_adapter_issue_95():
     assert IpAddress.sizeof() == 4
 
     IpAddress = ExprAdapter(Byte[4],
-        encoder = lambda obj,ctx: list(map(int, obj.split("."))),
-        decoder = lambda obj,ctx: "{0}.{1}.{2}.{3}".format(*obj), )
+                            encoder=lambda obj, ctx: list(map(int, obj.split("."))),
+                            decoder=lambda obj, ctx: "{0}.{1}.{2}.{3}".format(*obj), )
 
     assert IpAddress.parse(b"\x7f\x80\x81\x82") == "127.128.129.130"
     assert IpAddress.build("127.1.2.3") == b"\x7f\x01\x02\x03"
     assert IpAddress.sizeof() == 4
 
+
 def test_oneof():
-    assert OneOf(Byte,[4,5,6,7]).parse(b"\x05") == 5
-    assert OneOf(Byte,[4,5,6,7]).build(5) == b"\x05"
-    assert raises(OneOf(Byte,[4,5,6,7]).parse, b"\x08") == ValidationError
-    assert raises(OneOf(Byte,[4,5,6,7]).build, 8) == ValidationError
+    assert OneOf(Byte, [4, 5, 6, 7]).parse(b"\x05") == 5
+    assert OneOf(Byte, [4, 5, 6, 7]).build(5) == b"\x05"
+    with pytest.raises(ValidationError):
+        OneOf(Byte, [4, 5, 6, 7]).parse(b"\x08")
+    with pytest.raises(ValidationError):
+        OneOf(Byte, [4, 5, 6, 7]).build(8)
+
 
 def test_noneof():
-    assert NoneOf(Byte,[4,5,6,7]).parse(b"\x08") == 8
-    assert raises(NoneOf(Byte,[4,5,6,7]).parse, b"\x06") == ValidationError
+    assert NoneOf(Byte, [4, 5, 6, 7]).parse(b"\x08") == 8
+    with pytest.raises(ValidationError):
+        NoneOf(Byte, [4, 5, 6, 7]).parse(b"\x06")
+
 
 def test_filter():
     d = Filter(obj_ != 0, GreedyRange(Byte))
     assert d.parse(b"\x00\x02\x00") == [2]
-    assert d.build([0,1,0,2,0]) == b"\x01\x02"
+    assert d.build([0, 1, 0, 2, 0]) == b"\x01\x02"
+
 
 def test_slicing():
-    d = Slicing(Array(4,Byte), 4, 1, 3, empty=0)
-    assert d.parse(b"\x01\x02\x03\x04") == [2,3]
-    assert d.build([2,3]) == b"\x00\x02\x03\x00"
+    d = Slicing(Array(4, Byte), 4, 1, 3, empty=0)
+    assert d.parse(b"\x01\x02\x03\x04") == [2, 3]
+    assert d.build([2, 3]) == b"\x00\x02\x03\x00"
     assert d.sizeof() == 4
 
+
 def test_indexing():
-    d = Indexing(Array(4,Byte), 4, 2, empty=0)
+    d = Indexing(Array(4, Byte), 4, 2, empty=0)
     assert d.parse(b"\x01\x02\x03\x04") == 3
     assert d.build(3) == b"\x00\x00\x03\x00"
     assert d.sizeof() == 4
+
 
 def test_probe():
     common(Probe(), b"", None, 0)
@@ -1425,34 +1672,39 @@ def test_probe():
 
     common(Struct(Probe()), b"", {}, 0)
     common(Struct(Probe(lookahead=32)), b"", {}, 0)
-    common(Struct("value"/Computed(7), Probe(this.value)), b"", dict(value=7), 0)
+    common(Struct("value" / Computed(7), Probe(this.value)), b"", dict(value=7), 0)
+
 
 def test_debugger():
     common(Debugger(Byte), b"\xff", 255, 1)
 
+
 def test_repr():
     assert repr(Byte) == '<FormatField>'
-    assert repr("num"/Byte) == '<Renamed num <FormatField>>'
+    assert repr("num" / Byte) == '<Renamed num <FormatField>>'
     assert repr(Default(Byte, 0)) == '<Default +nonbuild <FormatField>>'
     assert repr(Struct()) == '<Struct +nonbuild>'
+
 
 def test_operators():
     common(Struct("new" / ("old" / Byte)), b"\x01", Container(new=1), 1)
     common(Struct(Renamed(Renamed(Byte, newname="old"), newname="new")), b"\x01", Container(new=1), 1)
 
-    common(Array(4, Byte), b"\x01\x02\x03\x04", [1,2,3,4], 4)
-    common(Byte[4], b"\x01\x02\x03\x04", [1,2,3,4], 4)
-    common(Struct("nums" / Byte[4]), b"\x01\x02\x03\x04", Container(nums=[1,2,3,4]), 4)
+    common(Array(4, Byte), b"\x01\x02\x03\x04", [1, 2, 3, 4], 4)
+    common(Byte[4], b"\x01\x02\x03\x04", [1, 2, 3, 4], 4)
+    common(Struct("nums" / Byte[4]), b"\x01\x02\x03\x04", Container(nums=[1, 2, 3, 4]), 4)
 
-    common(Int8ub >> Int16ub, b"\x01\x00\x02", [1,2], 3)
-    common(Int8ub >> Int16ub >> Int32ub, b"\x01\x00\x02\x00\x00\x00\x03", [1,2,3], 7)
-    common(Int8ub[2] >> Int16ub[2], b"\x01\x02\x00\x03\x00\x04", [[1,2],[3,4]], 6)
+    common(Int8ub >> Int16ub, b"\x01\x00\x02", [1, 2], 3)
+    common(Int8ub >> Int16ub >> Int32ub, b"\x01\x00\x02\x00\x00\x00\x03", [1, 2, 3], 7)
+    common(Int8ub[2] >> Int16ub[2], b"\x01\x02\x00\x03\x00\x04", [[1, 2], [3, 4]], 6)
 
-    common(Sequence(Embedded(Sequence(Int8ub)), Embedded(Sequence(Int16ub)) ), b"\x01\x00\x02", [1,2], 3)
-    common(Sequence(Int8ub) >> Sequence(Int16ub), b"\x01\x00\x02", [1,2], 3)
-    common(Struct("count"/Byte, "items"/Byte[this.count], Pass, Terminated), b"\x03\x01\x02\x03", Container(count=3)(items=[1,2,3]), SizeofError)
-    common("count"/Byte + "items"/Byte[this.count] + Pass + Terminated, b"\x03\x01\x02\x03", Container(count=3)(items=[1,2,3]), SizeofError)
-    common(Struct(Embedded(Struct(a=Byte)), Embedded(Struct(b=Byte)) ), b"\x01\x02", Container(a=1)(b=2), 2)
+    common(Sequence(Embedded(Sequence(Int8ub)), Embedded(Sequence(Int16ub))), b"\x01\x00\x02", [1, 2], 3)
+    common(Sequence(Int8ub) >> Sequence(Int16ub), b"\x01\x00\x02", [1, 2], 3)
+    common(Struct("count" / Byte, "items" / Byte[this.count], Pass, Terminated), b"\x03\x01\x02\x03",
+           Container(count=3)(items=[1, 2, 3]), SizeofError)
+    common("count" / Byte + "items" / Byte[this.count] + Pass + Terminated, b"\x03\x01\x02\x03",
+           Container(count=3)(items=[1, 2, 3]), SizeofError)
+    common(Struct(Embedded(Struct(a=Byte)), Embedded(Struct(b=Byte))), b"\x01\x02", Container(a=1)(b=2), 2)
     common(Struct(a=Byte) + Struct(b=Byte), b"\x01\x02", Container(a=1)(b=2), 2)
 
     d = Byte * "description"
@@ -1467,29 +1719,32 @@ def test_operators():
     d = Renamed(Renamed(Byte, newdocs="old"), newdocs="new")
     assert d.docs == "new"
 
+
 def test_operators_issue_87():
     assert ("string_name" / Byte).parse(b"\x01") == 1
     assert (u"unicode_name" / Byte).parse(b"\x01") == 1
     assert (b"bytes_name" / Byte).parse(b"\x01") == 1
     assert (None / Byte).parse(b"\x01") == 1
 
+
 def test_from_issue_76():
-    d = Aligned(4, Struct("a"/Byte, "f"/Bytes(lambda ctx: ctx.a)))
+    d = Aligned(4, Struct("a" / Byte, "f" / Bytes(lambda ctx: ctx.a)))
     common(d, b"\x02\xab\xcd\x00", Container(a=2)(f=b"\xab\xcd"))
+
 
 def test_from_issue_60():
     Header = Struct(
         "type" / Int8ub,
         "size" / Switch(lambda ctx: ctx.type,
-        {
-            0: Int8ub,
-            1: Int16ub,
-            2: Int32ub,
-        }),
+                        {
+                            0: Int8ub,
+                            1: Int16ub,
+                            2: Int32ub,
+                        }),
         "length" / Tell,
     )
-    assert Header.parse(b"\x00\x05")             == Container(type=0)(size=5)(length=2)
-    assert Header.parse(b"\x01\x00\x05")         == Container(type=1)(size=5)(length=3)
+    assert Header.parse(b"\x00\x05") == Container(type=0)(size=5)(length=2)
+    assert Header.parse(b"\x01\x00\x05") == Container(type=1)(size=5)(length=3)
     assert Header.parse(b"\x02\x00\x00\x00\x05") == Container(type=2)(size=5)(length=5)
     assert Header.build(dict(type=0, size=5)) == b"\x00\x05"
     assert Header.build(dict(type=1, size=5)) == b"\x01\x00\x05"
@@ -1499,12 +1754,13 @@ def test_from_issue_60():
         Embedded(Header),
         "data" / Bytes(lambda ctx: ctx.size),
     )
-    assert HeaderData.parse(b"\x00\x0512345")             == Container(type=0)(size=5)(length=2)(data=b"12345")
-    assert HeaderData.parse(b"\x01\x00\x0512345")         == Container(type=1)(size=5)(length=3)(data=b"12345")
+    assert HeaderData.parse(b"\x00\x0512345") == Container(type=0)(size=5)(length=2)(data=b"12345")
+    assert HeaderData.parse(b"\x01\x00\x0512345") == Container(type=1)(size=5)(length=3)(data=b"12345")
     assert HeaderData.parse(b"\x02\x00\x00\x00\x0512345") == Container(type=2)(size=5)(length=5)(data=b"12345")
     assert HeaderData.build(dict(type=0, size=5, data=b"12345")) == b"\x00\x0512345"
     assert HeaderData.build(dict(type=1, size=5, data=b"12345")) == b"\x01\x00\x0512345"
     assert HeaderData.build(dict(type=2, size=5, data=b"12345")) == b"\x02\x00\x00\x00\x0512345"
+
 
 def test_from_issue_171():
     attributes = BitStruct(
@@ -1523,16 +1779,18 @@ def test_from_issue_171():
         Container(attrCode=205)(attrValue=2),
         Container(attrCode=512)(attrValue=1), ])
 
+
 def test_from_issue_175():
     @FuncPath
     def comp_(num_array):
-        return sum(x << ((len(num_array)-1-i)*8) for i,x in enumerate(num_array))
+        return sum(x << ((len(num_array) - 1 - i) * 8) for i, x in enumerate(num_array))
 
     test = Struct(
         "numArray" / RepeatUntil(obj_ < 128, Byte),
         "value" / Computed(comp_(this.numArray))
     )
     assert test.parse(b'\x87\x0f').value == 34575
+
 
 def test_from_issue_71():
     Inner = Struct(
@@ -1545,8 +1803,8 @@ def test_from_issue_71():
         'payload' / RawCopy(Inner),
         'serial' / Int16ub,
         'checksum' / Checksum(Bytes(64),
-            lambda data: hashlib.sha512(data).digest(),
-            this.payload.data),
+                              lambda data: hashlib.sha512(data).digest(),
+                              this.payload.data),
         Check(len_(this.payload.data) == this.payload_len),
         Terminated,
     )
@@ -1554,21 +1812,23 @@ def test_from_issue_71():
     payload = Inner.build(Container(
         name=u"unknown",
         occupation=u"worker",
-        ))
+    ))
     Outer.build(Container(
         struct_type=9001,
         payload_len=len(payload),
         payload=Container(data=payload),
         serial=12345,
-        ))
+    ))
+
 
 def test_from_issue_231():
-    u = Union(0, "raw"/Byte[8], "ints"/Int[2])
-    s = Struct("u"/u, "d"/Byte[4])
+    u = Union(0, "raw" / Byte[8], "ints" / Int[2])
+    s = Struct("u" / u, "d" / Byte[4])
 
-    buildret = s.build(dict(u=dict(ints=[1,2]),d=[0,1,2,3]))
+    buildret = s.build(dict(u=dict(ints=[1, 2]), d=[0, 1, 2, 3]))
     assert buildret == b"\x00\x00\x00\x01\x00\x00\x00\x02\x00\x01\x02\x03"
     assert s.build(s.parse(buildret)) == buildret
+
 
 def test_from_issue_246():
     NumVertices = Bitwise(Aligned(8, Struct(
@@ -1590,21 +1850,25 @@ def test_from_issue_246():
     common(testByte, b'ab', Container(a=97, b=98))
 
     NumVertices = Union(None,
-        'numVx4' / Bitwise(Aligned(8, Struct('num'/ BitsInteger(4) ))),
-        'numVx8' / Bitwise(Aligned(8, Struct('num'/ BitsInteger(12)))),
-        'numVx16'/ Bitwise(Aligned(8, Struct('num'/ BitsInteger(28)))),
-    )
-    assert NumVertices.parse(b'\x01\x34\x56\x70') == Container(numVx4=Container(num=0))(numVx8=Container(num=19))(numVx16=Container(num=1262951))
+                        'numVx4' / Bitwise(Aligned(8, Struct('num' / BitsInteger(4)))),
+                        'numVx8' / Bitwise(Aligned(8, Struct('num' / BitsInteger(12)))),
+                        'numVx16' / Bitwise(Aligned(8, Struct('num' / BitsInteger(28)))),
+                        )
+    assert NumVertices.parse(b'\x01\x34\x56\x70') == Container(numVx4=Container(num=0))(numVx8=Container(num=19))(
+        numVx16=Container(num=1262951))
+
 
 def test_from_issue_244():
     class AddIndexes(Adapter):
         def _decode(self, obj, context, path):
-            for i,con in enumerate(obj):
+            for i, con in enumerate(obj):
                 con.index = i
             return obj
 
-    d = AddIndexes(Struct("num"/Byte)[4])
-    assert d.parse(b"abcd") == [Container(num=97)(index=0),Container(num=98)(index=1),Container(num=99)(index=2),Container(num=100)(index=3),]
+    d = AddIndexes(Struct("num" / Byte)[4])
+    assert d.parse(b"abcd") == [Container(num=97)(index=0), Container(num=98)(index=1), Container(num=99)(index=2),
+                                Container(num=100)(index=3), ]
+
 
 def test_from_issue_269():
     d = Struct("enabled" / Byte, If(this.enabled, Padding(2)))
@@ -1614,9 +1878,12 @@ def test_from_issue_269():
     assert d.build(dict(enabled=1)) == b"\x01\x00\x00"
     assert d.build(dict(enabled=0)) == b"\x00"
 
+
 def test_hanging_issue_280():
-    d = BitStruct('a'/BitsInteger(20), 'b'/BitsInteger(12))
-    assert raises(d.parse, b'\x00') == StreamError
+    d = BitStruct('a' / BitsInteger(20), 'b' / BitsInteger(12))
+    with pytest.raises(StreamError):
+        d.parse(b'\x00')
+
 
 def test_from_issue_324():
     d = Struct(
@@ -1629,8 +1896,9 @@ def test_from_issue_324():
             this.vals.data
         ),
     )
-    assert d.build(dict(vals=dict(value=dict(a=[0,1])))) == b"\x02\x00\x01\x01"
+    assert d.build(dict(vals=dict(value=dict(a=[0, 1])))) == b"\x02\x00\x01\x01"
     assert d.build(dict(vals=dict(data=b"\x00\x01"))) == b"\x02\x00\x01\x01"
+
 
 def test_from_issue_357():
     inner = Struct(
@@ -1647,9 +1915,11 @@ def test_from_issue_357():
     assert st1.build(dict(a={})) == b""
     assert st2.build(dict(b={})) == b""
 
+
 def test_context_is_container():
     d = Struct(Check(lambda ctx: type(ctx) is Container))
     d.parse(b"")
+
 
 def test_from_issue_362():
     FORMAT = Struct(
@@ -1665,6 +1935,7 @@ def test_from_issue_362():
     for i in range(5):
         assert BIT_FORMAT.parse(b'\x00').my_tell == 0
 
+
 def test_this_expresion_compare_container():
     st = Struct(
         "flags" / FlagsEnum(Byte, a=1),
@@ -1672,7 +1943,8 @@ def test_this_expresion_compare_container():
     )
     common(st, b"\x01", dict(flags=Container(_flagsenum=True)(a=True)), 1)
 
-@xfail(reason="unknown causes")
+
+@pytest.mark.xfail(reason="unknown causes")
 def test_pickling_constructs():
     # it seems there are few problems:
     # - singletons still dont pickle (_pickle.PicklingError: Can't pickle <class 'construct.core.GreedyBytes'>: it's not the same object as construct.core.GreedyBytes)
@@ -1688,7 +1960,7 @@ def test_pickling_constructs():
         "count" / Byte,
         # - singletons still dont pickle
         "greedybytes" / Prefixed(Byte, GreedyBytes),
-        "formatfield" / FormatField("=","Q"),
+        "formatfield" / FormatField("=", "Q"),
         "bytesinteger" / BytesInteger(1),
         # - singletons still dont pickle
         "varint" / VarInt,
@@ -1716,6 +1988,7 @@ def test_pickling_constructs():
     du = pickle.loads(pickle.dumps(d, protocol=-1))
     assert du.parse(data) == d.parse(data)
 
+
 def test_exposing_members_attributes():
     d = Struct(
         "animal" / Enum(Byte, giraffe=1),
@@ -1732,18 +2005,19 @@ def test_exposing_members_attributes():
     assert d.animal.giraffe == "giraffe"
 
     d = FocusedSeq(0,
-        "animal" / Enum(Byte, giraffe=1),
-    )
+                   "animal" / Enum(Byte, giraffe=1),
+                   )
     assert isinstance(d.animal, Renamed)
     assert isinstance(d.animal.subcon, Enum)
     assert d.animal.giraffe == "giraffe"
 
     d = Union(None,
-        "animal" / Enum(Byte, giraffe=1),
-    )
+              "animal" / Enum(Byte, giraffe=1),
+              )
     assert isinstance(d.animal, Renamed)
     assert isinstance(d.animal.subcon, Enum)
     assert d.animal.giraffe == "giraffe"
+
 
 def test_exposing_members_context():
     d = Struct(
@@ -1758,21 +2032,22 @@ def test_exposing_members_context():
         "data" / Bytes(lambda this: this.count - this._subcons.count.sizeof()),
         Check(lambda this: this._subcons.count.sizeof() == 1),
     )
-    common(d, b"\x05four", [5,b"four",None])
+    common(d, b"\x05four", [5, b"four", None])
 
     d = FocusedSeq("count",
-        "count" / Byte,
-        "data" / Padding(lambda this: this.count - this._subcons.count.sizeof()),
-        Check(lambda this: this._subcons.count.sizeof() == 1),
-    )
+                   "count" / Byte,
+                   "data" / Padding(lambda this: this.count - this._subcons.count.sizeof()),
+                   Check(lambda this: this._subcons.count.sizeof() == 1),
+                   )
     common(d, b'\x04\x00\x00\x00', 4, SizeofError)
 
     d = Union(None,
-        "chars" / Byte[4],
-        "data" / Bytes(lambda this: this._subcons.chars.sizeof()),
-        Check(lambda this: this._subcons.chars.sizeof() == 4),
-    )
-    assert d.parse(b"\x01\x02\x03\x04") == dict(chars=[1,2,3,4],data=b"\x01\x02\x03\x04")
+              "chars" / Byte[4],
+              "data" / Bytes(lambda this: this._subcons.chars.sizeof()),
+              Check(lambda this: this._subcons.chars.sizeof() == 4),
+              )
+    assert d.parse(b"\x01\x02\x03\x04") == dict(chars=[1, 2, 3, 4], data=b"\x01\x02\x03\x04")
+
 
 def test_isparsingbuilding():
     d = Struct(
@@ -1814,49 +2089,50 @@ def test_isparsingbuilding():
     d.sizeof()
     # ---------------------------------
     d = FocusedSeq("none",
-        "none" / Pass,
-        Check(this._parsing & this._._parsing),
-        Check(~this._building & ~this._._building),
-        Check(~this._sizing & ~this._._sizing),
-    )
+                   "none" / Pass,
+                   Check(this._parsing & this._._parsing),
+                   Check(~this._building & ~this._._building),
+                   Check(~this._sizing & ~this._._sizing),
+                   )
     d.parse(b'')
     d = FocusedSeq("none",
-        "none" / Pass,
-        Check(~this._parsing & ~this._._parsing),
-        Check(this._building & this._._building),
-        Check(~this._sizing & ~this._._sizing),
-    )
+                   "none" / Pass,
+                   Check(~this._parsing & ~this._._parsing),
+                   Check(this._building & this._._building),
+                   Check(~this._sizing & ~this._._sizing),
+                   )
     d.build(None)
     d = FocusedSeq("none",
-        "none" / Pass,
-        Check(~this._parsing & ~this._._parsing),
-        Check(~this._building & ~this._._building),
-        Check(this._sizing & this._._sizing),
-    )
+                   "none" / Pass,
+                   Check(~this._parsing & ~this._._parsing),
+                   Check(~this._building & ~this._._building),
+                   Check(this._sizing & this._._sizing),
+                   )
     d.sizeof()
     # ---------------------------------
     d = Union(None,
-        "none" / Pass,
-        Check(this._parsing & this._._parsing),
-        Check(~this._building & ~this._._building),
-        Check(~this._sizing & ~this._._sizing),
-    )
+              "none" / Pass,
+              Check(this._parsing & this._._parsing),
+              Check(~this._building & ~this._._building),
+              Check(~this._sizing & ~this._._sizing),
+              )
     d.parse(b'')
     d = Union(None,
-        "none" / Pass,
-        Check(~this._parsing & ~this._._parsing),
-        Check(this._building & this._._building),
-        Check(~this._sizing & ~this._._sizing),
-    )
+              "none" / Pass,
+              Check(~this._parsing & ~this._._parsing),
+              Check(this._building & this._._building),
+              Check(~this._sizing & ~this._._sizing),
+              )
     d.build(dict(none=None))
     d = Union(None,
-        "none" / Pass,
-        Check(~this._parsing & ~this._._parsing),
-        Check(~this._building & ~this._._building),
-        Check(this._sizing & this._._sizing),
-    )
+              "none" / Pass,
+              Check(~this._parsing & ~this._._parsing),
+              Check(~this._building & ~this._._building),
+              Check(this._sizing & this._._sizing),
+              )
     # doesnt check context because _sizeof just raises the error
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
     # ---------------------------------
     d = LazyStruct(
         Check(this._parsing & this._._parsing),
@@ -1876,6 +2152,7 @@ def test_isparsingbuilding():
         Check(this._sizing & this._._sizing),
     )
     d.sizeof()
+
 
 def test_struct_stream():
     d = Struct(
@@ -1906,7 +2183,8 @@ def test_struct_stream():
 
     d = Struct()
     d.parse(bytes(20))
-    d.parse_file(io.BytesIO(b'\x00' * 20))
+    d.parse_stream(io.BytesIO(b'\x00' * 20))
+
 
 def test_struct_root_topmost():
     d = Struct(
@@ -1922,31 +2200,39 @@ def test_struct_root_topmost():
     )
     # setGlobalPrintPrivateEntries(True)
     # d.parse(b'', z=2)
-    assert d.parse(b"", z=2) == Container(x=1, inner=Container(inner2=Container(x=1,z=2,zz=2)))
+    assert d.parse(b"", z=2) == Container(x=1, inner=Container(inner2=Container(x=1, z=2, zz=2)))
+
 
 def test_parsedhook_repeatersdiscard():
     outputs = []
+
     def printobj(obj, ctx):
         outputs.append(obj)
+
     d = GreedyRange(Byte * printobj, discard=True)
     assert d.parse(b"\x01\x02\x03") == []
-    assert outputs == [1,2,3]
+    assert outputs == [1, 2, 3]
 
     outputs = []
+
     def printobj(obj, ctx):
         outputs.append(obj)
+
     d = Array(3, Byte * printobj, discard=True)
     assert d.parse(b"\x01\x02\x03") == []
-    assert outputs == [1,2,3]
+    assert outputs == [1, 2, 3]
 
     outputs = []
+
     def printobj(obj, ctx):
         outputs.append(obj)
-    d = RepeatUntil(lambda obj,lst,ctx: ctx._index == 2, Byte * printobj, discard=True)
-    assert d.parse(b"\x01\x02\x03") == []
-    assert outputs == [1,2,3]
 
-@xfail(not supportsksyexport, reason="KSY exporter requires yaml and unicode strings")
+    d = RepeatUntil(lambda obj, lst, ctx: ctx._index == 2, Byte * printobj, discard=True)
+    assert d.parse(b"\x01\x02\x03") == []
+    assert outputs == [1, 2, 3]
+
+
+@pytest.mark.xfail(not supportsksyexport, reason="KSY exporter requires yaml and unicode strings")
 def test_exportksy():
     d = Struct(
         "nothing" / Pass * "field docstring",
@@ -1977,8 +2263,8 @@ def test_exportksy():
         "enum" / Enum(Byte, one=1, two=2),
         "flagsenum" / FlagsEnum(Byte, one=1, two=2),
 
-        "struct1" / Struct(Byte, "named"/Byte),
-        "sequence1" / Sequence(Byte, "named"/Byte),
+        "struct1" / Struct(Byte, "named" / Byte),
+        "sequence1" / Sequence(Byte, "named" / Byte),
 
         "array2d" / Array(5, Array(5, Byte)),
         "greedyrange" / GreedyRange(Byte),
@@ -1990,7 +2276,7 @@ def test_exportksy():
         # Index
         "rebuild" / Rebuild(Byte, 0),
         "default" / Default(Byte, 0),
-        "namedtuple1" / NamedTuple("coord", "x y z", "x"/Byte + "y"/Byte + "z"/Byte),
+        "namedtuple1" / NamedTuple("coord", "x y z", "x" / Byte + "y" / Byte + "z" / Byte),
         "namedtuple2" / NamedTuple("coord", "x y z", Byte >> Byte >> Byte),
         "namedtuple3" / NamedTuple("coord", "x y z", Byte[3]),
         "namedtuple4" / NamedTuple("coord", "x y z", GreedyRange(Byte)),
@@ -2016,10 +2302,11 @@ def test_exportksy():
         "prefixedarray" / PrefixedArray(Byte, Byte),
         # Compressed
     ) * \
-    "struct docstring"
+        "struct docstring"
     print(d.export_ksy(filename="example_ksy.ksy"))
 
-@xfail(reason="both sizeof fail because length is 1 level up than when parsing")
+
+@pytest.mark.xfail(reason="both sizeof fail because length is 1 level up than when parsing")
 def test_from_issue_692():
     # https://stackoverflow.com/questions/44747202/pythons-construct-sizeof-for-construct-depending-on-its-parent
 
@@ -2031,8 +2318,9 @@ def test_from_issue_692():
         "length" / Int8ul,  # The size in bytes of each handle/value pair
         "datalist" / Array(2, FixedSized(this.length, AttributeHandleValuePair)),
     )
-    assert AttReadByTypeResponse.parse(b"\x04\x01\x02\x03\x04\x01\x02\x03\x04") == Container(length=4,datalist=[dict(handle=0x0201,value=b'\x03\x04'),dict(handle=0x0201,value=b'\x03\x04')])
-    assert AttReadByTypeResponse.sizeof(length=4) == 1+2*4
+    assert AttReadByTypeResponse.parse(b"\x04\x01\x02\x03\x04\x01\x02\x03\x04") == Container(length=4, datalist=[
+        dict(handle=0x0201, value=b'\x03\x04'), dict(handle=0x0201, value=b'\x03\x04')])
+    assert AttReadByTypeResponse.sizeof(length=4) == 1 + 2 * 4
 
     AttributeHandleValuePair = Struct(
         "handle" / Int16ul,
@@ -2042,21 +2330,25 @@ def test_from_issue_692():
         "length" / Int8ul,  # The size in bytes of each handle/value pair
         "datalist" / AttributeHandleValuePair[2],
     )
-    assert AttReadByTypeResponse.parse(b"\x04\x01\x02\x03\x04\x01\x02\x03\x04") == Container(length=4,datalist=[dict(handle=0x0201,value=b'\x03\x04'),dict(handle=0x0201,value=b'\x03\x04')])
-    assert AttReadByTypeResponse.sizeof(length=4) == 1+2*(2+4-2)
+    assert AttReadByTypeResponse.parse(b"\x04\x01\x02\x03\x04\x01\x02\x03\x04") == Container(length=4, datalist=[
+        dict(handle=0x0201, value=b'\x03\x04'), dict(handle=0x0201, value=b'\x03\x04')])
+    assert AttReadByTypeResponse.sizeof(length=4) == 1 + 2 * (2 + 4 - 2)
 
-@xfail(reason="GreedyRange seeking inside Restreamed")
+
+@pytest.mark.xfail(reason="GreedyRange seeking inside Restreamed")
 def test_greedyrange_issue_697():
     d = BitStruct(
         "rest" / Bytewise(GreedyRange(Byte)),
     )
     d.parse(bytes(5))
 
+
 def test_greedybytes_issue_697():
     d = BitStruct(
         "rest" / Bytewise(GreedyBytes),
     )
     d.parse(bytes(5))
+
 
 def test_hex_issue_709():
     # Make sure, the fix doesn't destroy already working code

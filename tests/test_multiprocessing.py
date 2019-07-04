@@ -3,12 +3,13 @@ from construct import *
 from construct.lib import *
 
 
+def worker(q):
+    obj = q.get()
+    print(obj)
+
+
 def test_multiprocessing():
     import multiprocessing
-
-    def worker(q):
-        obj = q.get()
-        print(obj)
 
     queue = multiprocessing.Queue()
 
