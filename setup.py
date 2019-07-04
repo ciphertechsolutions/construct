@@ -2,6 +2,18 @@
 from setuptools import setup
 from construct.version import version_string
 
+
+extra_require = [
+    "enum34",
+    "numpy",
+    "arrow",
+    "ruamel.yaml",
+    "cloudpickle",
+    "lz4",
+    "cryptography",
+]
+
+
 setup(
     name = "construct",
     version = version_string,
@@ -24,15 +36,12 @@ setup(
     python_requires = ">=3.8",
     install_requires = [],
     extras_require = {
-        "extras": [
-            "numpy",
-            "arrow",
-            "ruamel.yaml",
-            "cloudpickle",
-            "lz4",
-            "cryptography",
-        ],
+        "extras": extra_require
     },
+    test_require = extra_require + [
+        "pytest",
+        "pytest-benchmark",
+    ],
     keywords = [
         "construct",
         "kaitai",

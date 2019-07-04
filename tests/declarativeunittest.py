@@ -12,27 +12,21 @@ from construct.lib import *
 
 ident = lambda x: x
 
-def raises(func, *args, **kw):
-    try:
-        return func(*args, **kw)
-    except Exception as e:
-        return e.__class__
 
-def common(format, datasample, objsample, sizesample=SizeofError, **kw):
-    # following are implied (re-parse and re-build)
+def common(format, data_sample, obj_sample, size_sample=SizeofError, **kw):
+    obj = format.parse(data_sample, **kw)
+    assert obj == obj_sample
+    data = format.build(obj_sample, **kw)
+    assert data == data_sample
+    # following are implied by above (re-parse and re-build)
     # assert format.parse(format.build(obj)) == obj
     # assert format.build(format.parse(data)) == data
-    obj = format.parse(datasample, **kw)
-    assert obj == objsample
-    data = format.build(objsample, **kw)
-    assert data == datasample
-
-    if isinstance(sizesample, int):
+    if isinstance(size_sample, int):
         size = format.sizeof(**kw)
-        assert size == sizesample
+        assert size == size_sample
     else:
-        size = raises(format.sizeof, **kw)
-        assert size == sizesample
+        with pytest.raises(size_sample):
+            format.sizeof(**kw)
 
     # attemps to compile, ignores if compilation fails
     # following was added to test compiling functionality
@@ -43,10 +37,10 @@ def common(format, datasample, objsample, sizesample=SizeofError, **kw):
     except Exception:
         pass
     else:
-        obj = cformat.parse(datasample, **kw)
-        assert obj == objsample
-        data = cformat.build(objsample, **kw)
-        assert data == datasample
+        obj = cformat.parse(data_sample, **kw)
+        assert obj == obj_sample
+        data = cformat.build(obj_sample, **kw)
+        assert data == data_sample
 
 def commonhex(format, hexdata):
     commonbytes(format, binascii.unhexlify(hexdata))
