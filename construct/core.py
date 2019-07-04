@@ -69,6 +69,61 @@ class CancelParsing(ConstructError):
 #===============================================================================
 # used internally
 #===============================================================================
+
+class Context(Container):
+    """Special type of Container used to store contextual information during processing."""
+
+    def __init__(self, _parsing=False, _building=False, _sizing=False, _io=None, _index=0, _subcons=None, **kwargs):
+        super(Context, self).__init__(
+            _=None,                   # Parent context.
+            _root=None,               # Root context.
+            _params=self,             # Global parameters.
+            # TODO: Perhaps have a "state" attribute instead to avoid contradictions due to multiple flags being true.
+            _parsing=_parsing,        # Processing parsing()?
+            _building=_building,      # Processing building()?
+            _sizing=_sizing,          # Processing sizeof()?
+            _io=_io,                  # Processing stream.
+            _index=_index,            # Current index (for Array)
+            _subcons=_subcons or [],  # Current subcons
+        )
+        # Recursively build internal dictionaries as child contexts.
+        for key, value in kwargs.items():
+            if isinstance(value, dict) and value is not self and not isinstance(value, Context):
+                value = self.create_child(**value)
+            self[key] = value
+
+    def create_child(self, _io=None, _subcons=None, **kwargs):
+        """Factory method for initializing a child Context."""
+        # Don't allow children to change the processing status or index
+        kwargs.pop('_parsing', None)
+        kwargs.pop('_building', None)
+        kwargs.pop('_sizing', None)
+        kwargs.pop('_index', None)
+
+        context = Context(
+            _parsing=self._parsing,
+            _building=self._building,
+            _sizing=self._sizing,
+            _io=_io,
+            _subcons=_subcons,
+            _index=self._index,
+            **kwargs,
+        )
+        context._ = self
+        context._params = self._params
+        # First child is root, since the very first parent context holds the user defined external parameters.
+        context._root = self._root or context
+        return context
+
+    def get_child(self, name, default=None):
+        """Retrieves child Context or returns default if it doesn't exist."""
+        child_context = self.get(name, None)
+        if child_context and isinstance(child_context, Context):
+            return child_context
+        else:
+            return default
+
+
 def singleton(arg):
     x = arg()
     x.__reduce__ = lambda: arg.__name__
@@ -307,11 +362,10 @@ class Construct(object):
         r"""
         Parse a stream. Files, pipes, sockets, and other streaming sources of data are handled by this method. See parse().
         """
-        context = Container(**contextkw)
-        context._parsing = True
-        context._building = False
-        context._sizing = False
-        context._params = context
+        contextkw.pop('_parsing', None)
+        contextkw.pop('_building', None)
+        contextkw.pop('_sizing', None)
+        context = Context(_parsing=True, **contextkw)
         try:
             return self._parsereport(stream, context, "(parsing)")
         except CancelParsing:
@@ -356,11 +410,10 @@ class Construct(object):
         r"""
         Build an object directly into a stream. See build().
         """
-        context = Container(**contextkw)
-        context._parsing = False
-        context._building = True
-        context._sizing = False
-        context._params = context
+        contextkw.pop('_parsing', None)
+        contextkw.pop('_building', None)
+        contextkw.pop('_sizing', None)
+        context = Context(_building=True, **contextkw)
         self._build(obj, stream, context, "(building)")
 
     def build_file(self, obj, filename, **contextkw):
@@ -390,11 +443,10 @@ class Construct(object):
 
         :raises SizeofError: size could not be determined in actual context, or is impossible to be determined
         """
-        context = Container(**contextkw)
-        context._parsing = False
-        context._building = False
-        context._sizing = True
-        context._params = context
+        contextkw.pop('_parsing', None)
+        contextkw.pop('_building', None)
+        contextkw.pop('_sizing', None)
+        context = Context(_sizing=True, **contextkw)
         return self._sizeof(context, "(sizeof)")
 
     def _sizeof(self, context, path):
@@ -1989,8 +2041,7 @@ class Struct(Construct):
     def _parse(self, stream, context, path):
         obj = Container()
         obj._io = stream
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         for sc in self.subcons:
             try:
                 subobj = sc._parsereport(stream, context, path)
@@ -2004,8 +2055,7 @@ class Struct(Construct):
     def _build(self, obj, stream, context, path):
         if obj is None:
             obj = Container()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             try:
@@ -2025,10 +2075,8 @@ class Struct(Construct):
         return context
 
     def _sizeof(self, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
@@ -2123,8 +2171,7 @@ class Sequence(Construct):
 
     def _parse(self, stream, context, path):
         obj = ListContainer()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         for i,sc in enumerate(self.subcons):
             try:
                 subobj = sc._parsereport(stream, context, path)
@@ -2138,10 +2185,9 @@ class Sequence(Construct):
     def _build(self, obj, stream, context, path):
         if obj is None:
             obj = ListContainer([None for sc in self.subcons])
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         retlist = ListContainer()
-        for i,(sc,subobj) in enumerate(zip(self.subcons, obj)):
+        for i, (sc, subobj) in enumerate(zip(self.subcons, obj)):
             try:
                 if sc.name:
                     context[sc.name] = subobj
@@ -2155,10 +2201,8 @@ class Sequence(Construct):
         return retlist
 
     def _sizeof(self, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
@@ -2263,7 +2307,11 @@ class Array(Subconstruct):
                 count = count(context)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
-        return count * self.subcon._sizeof(context, path)
+        size = 0
+        for i in range(count):
+            context._index = i
+            size += self.subcon._sizeof(context, path)
+        return size
 
     def _emitparse(self, code):
         return "ListContainer((this.__setitem__('_index',i),(%s))[1] for i in range(%s))" % (self.subcon._compileparse(code), self.count, )
@@ -2914,8 +2962,7 @@ class FocusedSeq(Construct):
         raise AttributeError
 
     def _parse(self, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         for i,sc in enumerate(self.subcons):
             parseret = sc._parsereport(stream, context, path)
@@ -2926,8 +2973,7 @@ class FocusedSeq(Construct):
         return finalret
 
     def _build(self, obj, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         context[parsebuildfrom] = obj
         for i,sc in enumerate(self.subcons):
@@ -2939,10 +2985,8 @@ class FocusedSeq(Construct):
         return finalret
 
     def _sizeof(self, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
@@ -3361,8 +3405,7 @@ class Union(Construct):
 
     def _parse(self, stream, context, path):
         obj = Container()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         fallback = stream_tell(stream)
         forwards = {}
         for i,sc in enumerate(self.subcons):
@@ -3382,8 +3425,7 @@ class Union(Construct):
         return obj
 
     def _build(self, obj, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             if sc.flagbuildnone:
@@ -5406,8 +5448,7 @@ class LazyStruct(Construct):
         raise AttributeError
 
     def _parse(self, stream, context, path):
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         offset = stream_tell(stream)
         offsets = {0: offset}
         values = {}
@@ -5428,8 +5469,7 @@ class LazyStruct(Construct):
         # exact copy from Struct class
         if obj is None:
             obj = Container()
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = stream, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
+        context = context.create_child(_io=stream, _subcons=self._subcons)
         context.update(obj)
         for sc in self.subcons:
             try:
@@ -5450,10 +5490,8 @@ class LazyStruct(Construct):
 
     def _sizeof(self, context, path):
         # exact copy from Struct class
-        context = Container(_ = context, _params = context._params, _root = None, _parsing = context._parsing, _building = context._building, _sizing = context._sizing, _subcons = self._subcons, _io = None, _index = context.get("_index", None))
-        context._root = context._.get("_root", context)
         try:
-            return sum(sc._sizeof(context, path) for sc in self.subcons)
+            return sum(sc._sizeof(context.get_child(sc.name, context), path) for sc in self.subcons)
         except (KeyError, AttributeError):
             raise SizeofError("cannot calculate size, key not found in context")
 
