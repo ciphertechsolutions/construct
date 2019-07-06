@@ -718,13 +718,16 @@ class Construct(object):
 
     def __getitem__(self, count):
         """
-        Used for making Arrays like Byte[5] and Byte[this.count].
+        Used for making Ranges/Arrays like Byte[5] or Byte[:].
         """
         if isinstance(count, slice):
-            raise ConstructError("subcon[N] syntax can only be used for Arrays, use GreedyRange(subcon) instead?")
-        if isinstance(count, int) or callable(count):
-            return Array(count, self)
-        raise ConstructError("subcon[N] syntax expects integer or context lambda")
+            if count.step is not None:
+                # TODO: Use step functionality for Iter() or adding discard parameter?
+                raise ValueError("subcon[N] syntax must not contain a step.")
+            return Range(count.start, count.stop, self)
+        elif isinstance(count, int) or callable(count):
+            return Range(count, count, self)
+        raise ConstructError("subcon[N] syntax expects integer, a context lambda, or a slice thereof")
 
 
 class Subconstruct(Construct):
@@ -2151,7 +2154,7 @@ class Sequence(Construct):
         b'\x0312'
 
         Alternative syntax (not recommended):
-        >>> (Byte >> "Byte >> "c"/Byte >> "d"/Byte)
+        >>> (Byte >> Byte >> "c"/Byte >> "d"/Byte)
 
         Alternative syntax, but requires Python 3.6 or any PyPy:
         >>> Sequence(a=Byte, b=Byte, c=Byte, d=Byte)
@@ -2239,7 +2242,170 @@ class Sequence(Construct):
 #===============================================================================
 # arrays ranges and repeaters
 #===============================================================================
-class Array(Subconstruct):
+
+
+class Range(Subconstruct):
+    r"""
+    A homogenous array of elements. The array will iterate through between ``min`` to ``max`` times. If an exception occurs (EOF, validation error), the repeater exits cleanly. If less than ``min`` units have been successfully parsed, a RangeError is raised.
+    .. seealso:: Analog :func:`~construct.core.GreedyRange` that parses until end of stream.
+    .. note:: This object requires a seekable stream for parsing.
+
+    :param min: the minimal count or None for 0
+    :param max: the maximal count or None for infinite
+    :param subcon: the subcon to process individual elements
+    :param discard: optional, bool, if set then parsing returns empty list
+
+    Example::
+        >>> d = Range(3, 5, Byte)
+        >>> d.build([1,2,3,4])
+        b'\x01\x02\x03\x04'
+        >>> d.parse(_)
+        ListContainer([1, 2, 3, 4])
+        >>> d.build([1,2])
+        Traceback (most recent call last):
+            ...
+        core.RangeError: [(building)] expected from 3 to 5 elements, found 2
+        >>> d.build([1,2,3,4,5,6])
+        Traceback (most recent call last):
+            ...
+        core.RangeError: [(building)] expected from 3 to 5 elements, found 6
+
+        # Alternative syntax:
+        >>> d = Byte[3:5]
+        >>> d.build([1,2,3,4])
+        b'\x01\x02\x03\x04'
+        >>> d.parse(_)
+        ListContainer([1, 2, 3, 4])
+        >>> d.build([1,2])
+        Traceback (most recent call last):
+            ...
+        core.RangeError: [(building)] expected from 3 to 5 elements, found 2
+        >>> d.build([1,2,3,4,5,6])
+        Traceback (most recent call last):
+            ...
+        core.RangeError: [(building)] expected from 3 to 5 elements, found 6
+
+        # Infinite/max ints are used if not provided.
+        >>> d = Range(3, None, Byte) or Byte[3:]
+        >>> d.build([1, 2, 3, 4])
+        b'\x01\x02\x03\x04'
+        >>> d.parse(_)
+        ListContainer([1, 2, 3, 4])
+        >>> d.build([1,2])
+        Traceback (most recent call last):
+            ...
+        core.RangeError: [(building)] expected from 3 to infinite elements, found 2
+        >>> d = Range(None, 5, Byte) or Byte[:5]
+        >>> d.build([1, 2, 3, 4])
+        b'\x01\x02\x03\x04'
+        >>> d.parse(_)
+        ListContainer([1, 2, 3, 4])
+        >>> d.build([1,2,3,4,5,6])
+        Traceback (most recent call last):
+            ...
+        core.RangeError: [(building)] expected from 0 to 5 elements, found 6
+        >>> d = Range(None, None, Byte) or GreedyRange(Byte) or Byte[:]
+        >>> d.build([1, 2, 3, 4])
+        b'\x01\x02\x03\x04'
+        >>> d.parse(_)
+        ListContainer([1, 2, 3, 4])
+    """
+    __slots__ = ["min", "max", "discard"]
+
+    def __init__(self, min, max, subcon, discard=False):
+        super(Range, self).__init__(subcon)
+        self.min = min
+        self.max = max
+        self.discard = discard
+
+    def _parse(self, stream, context, path):
+        min_ = evaluate(self.min, context) or 0
+        max_ = evaluate(self.max, context)
+        if min_ < 0 or (max_ is not None and max_ < min_):
+            raise RangeError("[{}] unsane min {} and max {}".format(path, min_, max_))
+        obj = ListContainer()
+        tellable = bool(stream.tell)
+        i = 0
+        try:
+            while max_ is None or i < max_:
+                context._index = i
+                if tellable:
+                    fallback = stream.tell()
+                entry = self.subcon._parsereport(stream, context, path)
+                if not self.discard:
+                    obj.append(entry)
+                if max_ is None and tellable and stream.tell() == fallback:
+                    raise ExplicitError("[{}] Infinite loop detected.".format(path))
+                i += 1
+        except StopFieldError:
+            pass
+        except ExplicitError:
+            raise
+        except Exception:
+            if i < min_:
+                if min_ == max_:
+                    raise RangeError("[{}] expected {} entries, found {}".format(path, min_, i))
+                raise RangeError("[{}] expected {} to {}, found {}".format(path, min_, max_ or "infinite", i))
+            if tellable:
+                stream.seek(fallback)
+        return obj
+
+    def _build(self, obj, stream, context, path):
+        min_ = evaluate(self.min, context) or 0
+        max_ = evaluate(self.max, context)
+        if min_ < 0 or (max_ is not None and max_ < min_):
+            raise RangeError("[{}] unsane min {} and max {}".format(path, min_, max_))
+        if not isinstance(obj, collections.Sequence):
+            raise RangeError("[{}] expected sequence type, found {}".format(path, type(obj)))
+        if len(obj) < min_ or (max_ is not None and len(obj) > max_):
+            raise RangeError(
+                "[{}] expected from {} to {} elements, found {}".format(path, min_, max_ or "infinite", len(obj)))
+        retlist = ListContainer()
+        try:
+            for i, subobj in enumerate(obj):
+                context._index = i
+                buildret = self.subcon._build(subobj, stream, context, path)
+                retlist.append(buildret)
+        except StopFieldError:
+            pass
+        except ExplicitError:
+            raise
+        except Exception:
+            if len(obj) < min_:
+                raise RangeError("[{}] expected {} to {}, found {}".format(path, min_, max_, len(obj)))
+            else:
+                raise
+        return retlist
+
+    def _sizeof(self, context, path):
+        # WARNING: possibly broken by StopIf
+        try:
+            min_ = evaluate(self.min, context) or 0
+            max_ = evaluate(self.max, context)
+        except (KeyError, AttributeError):
+            raise SizeofError("cannot calculate size, key not found in context")
+        if min_ == max_:
+            size = 0
+            for i in range(min_):
+                context._index = i
+                size += self.subcon._sizeof(context, path)
+            return size
+        else:
+            raise SizeofError("cannot calculate size")
+
+    def _emitfulltype(self, ksy, bitwise):
+        # GreedyRange
+        if self.min is None and self.max is None:
+            return dict(type=self.subcon._compileprimitivetype(ksy, bitwise), repeat="eos")
+        # Array
+        if self.min == self.max:
+            return dict(type=self.subcon._compileprimitivetype(ksy, bitwise), repeat="expr", repeat_expr=self.min)
+
+        raise NotImplementedError
+
+
+
+def Array(count, subcon, discard=False):
     r"""
     Homogenous array of elements, similar to C# generic T[].
 
@@ -2259,68 +2425,23 @@ class Array(Subconstruct):
 
     Example::
 
-        >>> d = Array(5, Byte) or Byte[5]
+        >>> d = Array(5, Byte)
         >>> d.build(range(5))
         b'\x00\x01\x02\x03\x04'
         >>> d.parse(_)
-        [0, 1, 2, 3, 4]
+        ListContainer([0, 1, 2, 3, 4])
+
+        # Alternative syntax
+        >>> d = Byte[5]
+        >>> d.build(range(5))
+        b'\x00\x01\x02\x03\x04'
+        >>> d.parse(_)
+        ListContainer([0, 1, 2, 3, 4])
     """
-
-    def __init__(self, count, subcon, discard=False):
-        super(Array, self).__init__(subcon)
-        self.count = count
-        self.discard = discard
-
-    def _parse(self, stream, context, path):
-        count = self.count
-        if callable(count):
-            count = count(context)
-        if not 0 <= count:
-            raise RangeError("invalid count %s" % (count,))
-        obj = ListContainer()
-        for i in range(count):
-            context._index = i
-            e = self.subcon._parsereport(stream, context, path)
-            if not self.discard:
-                obj.append(e)
-        return obj
-
-    def _build(self, obj, stream, context, path):
-        count = self.count
-        if callable(count):
-            count = count(context)
-        if not 0 <= count:
-            raise RangeError("invalid count %s" % (count,))
-        if not len(obj) == count:
-            raise RangeError("expected %d elements, found %d" % (count, len(obj)))
-        retlist = ListContainer()
-        for i,e in enumerate(obj):
-            context._index = i
-            buildret = self.subcon._build(e, stream, context, path)
-            retlist.append(buildret)
-        return retlist
-
-    def _sizeof(self, context, path):
-        try:
-            count = self.count
-            if callable(count):
-                count = count(context)
-        except (KeyError, AttributeError):
-            raise SizeofError("cannot calculate size, key not found in context")
-        size = 0
-        for i in range(count):
-            context._index = i
-            size += self.subcon._sizeof(context, path)
-        return size
-
-    def _emitparse(self, code):
-        return "ListContainer((this.__setitem__('_index',i),(%s))[1] for i in range(%s))" % (self.subcon._compileparse(code), self.count, )
-
-    def _emitfulltype(self, ksy, bitwise):
-        return dict(type=self.subcon._compileprimitivetype(ksy, bitwise), repeat="expr", repeat_expr=self.count)
+    return Range(count, count, subcon, discard=discard)
 
 
-class GreedyRange(Subconstruct):
+def GreedyRange(subcon, discard=False):
     r"""
     Homogenous array of elements, similar to C# generic IEnumerable<T>, but works with unknown count of elements by parsing until end of stream.
 
@@ -2342,46 +2463,16 @@ class GreedyRange(Subconstruct):
         >>> d.build(range(8))
         b'\x00\x01\x02\x03\x04\x05\x06\x07'
         >>> d.parse(_)
-        [0, 1, 2, 3, 4, 5, 6, 7]
+        ListContainer([0, 1, 2, 3, 4, 5, 6, 7])
+
+        # Alternative syntax
+        >>> d = Byte[:]
+        >>> d.build(range(8))
+        b'\x00\x01\x02\x03\x04\x05\x06\x07'
+        >>> d.parse(_)
+        ListContainer([0, 1, 2, 3, 4, 5, 6, 7])
     """
-
-    def __init__(self, subcon, discard=False):
-        super(GreedyRange, self).__init__(subcon)
-        self.discard = discard
-
-    def _parse(self, stream, context, path):
-        obj = ListContainer()
-        try:
-            for i in itertools.count():
-                context._index = i
-                fallback = stream_tell(stream)
-                e = self.subcon._parsereport(stream, context, path)
-                if not self.discard:
-                    obj.append(e)
-        except StopFieldError:
-            pass
-        except ExplicitError:
-            raise
-        except Exception:
-            stream_seek(stream, fallback)
-        return obj
-
-    def _build(self, obj, stream, context, path):
-        try:
-            retlist = ListContainer()
-            for i,e in enumerate(obj):
-                context._index = i
-                buildret = self.subcon._build(e, stream, context, path)
-                retlist.append(buildret)
-            return retlist
-        except StopFieldError:
-            pass
-
-    def _sizeof(self, context, path):
-        raise SizeofError
-
-    def _emitfulltype(self, ksy, bitwise):
-        return dict(type=self.subcon._compileprimitivetype(ksy, bitwise), repeat="eos")
+    return Range(None, None, subcon, discard=discard)
 
 
 class RepeatUntil(Subconstruct):
@@ -3101,8 +3192,8 @@ class NamedTuple(Adapter):
     """
 
     def __init__(self, tuplename, tuplefields, subcon):
-        if not isinstance(subcon, (Struct,Sequence,Array,GreedyRange)):
-            raise NamedTupleError("subcon is neither Struct Sequence Array GreedyRange")
+        if not isinstance(subcon, (Struct,Sequence,Range)):
+            raise NamedTupleError("subcon is neither Struct, Sequence, or Array")
         super(NamedTuple, self).__init__(subcon)
         self.tuplename = tuplename
         self.tuplefields = tuplefields
@@ -3112,16 +3203,16 @@ class NamedTuple(Adapter):
         if isinstance(self.subcon, Struct):
             del obj["_io"]
             return self.factory(**obj)
-        if isinstance(self.subcon, (Sequence,Array,GreedyRange)):
+        if isinstance(self.subcon, (Sequence,Range)):
             return self.factory(*obj)
-        raise NamedTupleError("subcon is neither Struct Sequence Array GreedyRangeGreedyRange")
+        raise NamedTupleError("subcon is neither Struct, Sequence, or Array")
 
     def _encode(self, obj, context, path):
         if isinstance(self.subcon, Struct):
             return Container({sc.name:getattr(obj,sc.name) for sc in self.subcon.subcons if sc.name})
-        if isinstance(self.subcon, (Sequence,Array,GreedyRange)):
+        if isinstance(self.subcon, (Sequence,Range)):
             return list(obj)
-        raise NamedTupleError("subcon is neither Struct Sequence Array GreedyRange")
+        raise NamedTupleError("subcon is neither Struct, Sequence, or Array")
 
     def _emitparse(self, code):
         fname = "factory_%s" % code.allocateId()
@@ -3130,7 +3221,7 @@ class NamedTuple(Adapter):
         """ % (fname, self.tuplename, self.tuplefields, ))
         if isinstance(self.subcon, Struct):
             return "%s(**(%s))" % (fname, self.subcon._compileparse(code), )
-        if isinstance(self.subcon, (Sequence,Array,GreedyRange)):
+        if isinstance(self.subcon, (Sequence,Range)):
             return "%s(*(%s))" % (fname, self.subcon._compileparse(code), )
         raise NamedTupleError("subcon is neither Struct Sequence Array GreedyRange")
 

@@ -349,6 +349,7 @@ def test_class_array_build(benchmark):
 
 def test_class_greedyrange_parse(benchmark):
     d = GreedyRange(Byte)
+    print(d.parse(bytes(100)))
     benchmark(d.parse, bytes(100))
 
 
@@ -981,6 +982,7 @@ def test_overall_parse(benchmark):
 
 def test_overall_parse_compiled(benchmark):
     d = example.compile()
+    d.parse(exampledata)
     benchmark(d.parse, exampledata)
 
 

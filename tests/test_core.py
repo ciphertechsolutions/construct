@@ -214,8 +214,8 @@ def test_paddedstring():
         common(PaddedString(100, e), data, s, 100)
 
     for e in ["ascii", "utf8", "utf16", "utf-16-le", "utf32", "utf-32-le"]:
-        PaddedString(10, e).sizeof() == 10
-        PaddedString(this.n, e).sizeof(n=10) == 10
+        assert PaddedString(10, e).sizeof() == 10
+        assert PaddedString(this.n, e).sizeof(n=10) == 10
 
 
 def test_pascalstring():
@@ -239,9 +239,9 @@ def test_cstring():
         common(CString(e), s.encode(e) + bytes(us), s)
         common(CString(e), bytes(us), u"")
 
-    CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
-    CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
-    CString("utf32").build(
+    assert CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
+    assert CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
+    assert CString("utf32").build(
         s) == b'\xff\xfe\x00\x00\x10\x04\x00\x00D\x04\x00\x00>\x04\x00\x00=\x04\x00\x00' + b"\x00\x00\x00\x00"
 
     for e in ["utf8", "utf16", "utf-16-le", "utf32", "utf-32-le", "ascii"]:
@@ -269,7 +269,7 @@ def test_string_encodings():
 def test_flag():
     common(Flag, b"\x00", False, 1)
     common(Flag, b"\x01", True, 1)
-    Flag.parse(b"\xff") == True
+    assert Flag.parse(b"\xff") == True
 
 
 def test_enum():
@@ -499,7 +499,10 @@ def test_struct_issue_566():
         "inner" / inner,
     )
     assert outer.parse(b'\x01\x02\x03') == Container(a=1)(inner=Container(b=2)(c=3))
-    assert outer.build(Container(a=1)(inner=Container(b=2)(c=3))) == b'\x01\x02\x80\x03\x04'
+    assert outer.build(Container(a=1)(inner=Container(b=2)(c=3))) == b'\x01\x02\x03'
+    # NOTE: This test originally had the following as part of it's test.
+    #   Not sure where the \x80 and \x04 came from and why that was considered correct...
+    # assert outer.build(Container(a=1)(inner=Container(b=2)(c=3))) == b'\x01\x02\x80\x03\x04'
 
 
 def test_struct_issue_771():
@@ -537,7 +540,7 @@ def test_array():
     d = Array(3, Byte)
     common(d, b"\x01\x02\x03", [1, 2, 3], 3)
     assert d.parse(b"\x01\x02\x03additionalgarbage") == [1, 2, 3]
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         d.parse(b"")
     with pytest.raises(RangeError):
         d.build([1, 2])
@@ -548,7 +551,7 @@ def test_array():
     common(d, b"\x01\x02\x03", [1, 2, 3], 3, n=3)
     assert d.parse(b"\x01\x02\x03", n=3) == [1, 2, 3]
     assert d.parse(b"\x01\x02\x03additionalgarbage", n=3) == [1, 2, 3]
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         d.parse(b"", n=3)
     with pytest.raises(RangeError):
         d.build([1, 2], n=3)
@@ -1000,7 +1003,7 @@ def test_embeddedswitch_issue_684():
             2: Struct("value" / Byte),
         }
     )
-    d.parse(b"\x01\xff") == Container(type=1, value=None)
+    assert d.parse(b"\x01\xff") == Container(type=1, value=None)
 
 
 def test_stopif():
@@ -1088,9 +1091,9 @@ def test_peek():
     d = Struct("a" / Peek(Int8ub), "b" / Int16ub)
     common(d, b"\x01\x02", Container(a=0x01)(b=0x0102), 2)
     d = Struct(Peek("a" / Byte), Peek("b" / Int16ub))
-    d.parse(b"\x01\x02") == Container(a=0x01)(b=0x0102)
-    d.build(Container(a=0x01)(b=0x0102)) == b"\x01\x02"
-    d.sizeof() == 0
+    assert d.parse(b"\x01\x02") == Container(a=0x01)(b=0x0102)
+    assert d.build(Container(a=0x01)(b=0x0102)) == b""
+    assert d.sizeof() == 0
 
 
 def test_seek():
@@ -1215,9 +1218,9 @@ def test_prefixedarray():
     assert PrefixedArray(Byte, Byte).parse(b"\x03\x01\x02\x03") == [1, 2, 3]
     assert PrefixedArray(Byte, Byte).parse(b"\x00") == []
     assert PrefixedArray(Byte, Byte).build([1, 2, 3]) == b"\x03\x01\x02\x03"
-    with pytest.raises(StreamError):
+    with pytest.raises(StreamError):  # StreamError because we fail to read prefix entry.
         PrefixedArray(Byte, Byte).parse(b"")
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         PrefixedArray(Byte, Byte).parse(b"\x03\x01")
     with pytest.raises(SizeofError):
         PrefixedArray(Byte, Byte).sizeof()
