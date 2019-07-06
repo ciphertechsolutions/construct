@@ -337,9 +337,9 @@ def test_cstring():
         common(CString(e), s.encode(e) + bytes(us), s)
         common(CString(e), bytes(us), u"")
 
-    CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
-    CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
-    CString("utf32").build(
+    assert CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
+    assert CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
+    assert CString("utf32").build(
         s) == b'\xff\xfe\x00\x00\x10\x04\x00\x00D\x04\x00\x00>\x04\x00\x00=\x04\x00\x00' + b"\x00\x00\x00\x00"
 
     for e in ["utf8", "utf16", "utf-16-le", "utf32", "utf-32-le", "ascii"]:
@@ -609,7 +609,7 @@ def test_array():
     d = Array(3, Byte)
     common(d, b"\x01\x02\x03", [1, 2, 3], 3)
     assert d.parse(b"\x01\x02\x03additionalgarbage") == [1, 2, 3]
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         d.parse(b"")
     with pytest.raises(RangeError):
         d.build([1, 2])
@@ -620,7 +620,7 @@ def test_array():
     common(d, b"\x01\x02\x03", [1, 2, 3], 3, n=3)
     assert d.parse(b"\x01\x02\x03", n=3) == [1, 2, 3]
     assert d.parse(b"\x01\x02\x03additionalgarbage", n=3) == [1, 2, 3]
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         d.parse(b"", n=3)
     with pytest.raises(RangeError):
         d.build([1, 2], n=3)
@@ -1329,9 +1329,9 @@ def test_prefixedarray():
     assert PrefixedArray(Byte, Byte).parse(b"\x03\x01\x02\x03") == [1, 2, 3]
     assert PrefixedArray(Byte, Byte).parse(b"\x00") == []
     assert PrefixedArray(Byte, Byte).build([1, 2, 3]) == b"\x03\x01\x02\x03"
-    with pytest.raises(StreamError):
+    with pytest.raises(StreamError):  # StreamError because we fail to read prefix entry.
         PrefixedArray(Byte, Byte).parse(b"")
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         PrefixedArray(Byte, Byte).parse(b"\x03\x01")
     with pytest.raises(SizeofError):
         PrefixedArray(Byte, Byte).sizeof()
