@@ -21,6 +21,7 @@ Hands-on example:
 
 from construct.core import *
 from construct.expr import *
+from construct.helpers import *
 from construct.debug import *
 from construct.version import *
 from construct import lib
@@ -56,6 +57,7 @@ __all__ = [
     'ByteSwapped',
     'Bytewise',
     'CancelParsing',
+    'CBytes',
     'Check',
     'CheckError',
     'Checksum',
@@ -133,7 +135,7 @@ __all__ = [
     'OneOf',
     'Optional',
     'Padded',
-    'PaddedString',
+    'String',
     'Padding',
     'PaddingError',
     'PascalString',
@@ -143,7 +145,6 @@ __all__ = [
     'Peek',
     'Pickled',
     'Pointer',
-    'possiblestringencodings',
     'Prefixed',
     'PrefixedArray',
     'Probe',
@@ -172,6 +173,7 @@ __all__ = [
     'Short',
     'Single',
     'SizeofError',
+    'SkipNull',
     'Slicing',
     'StopFieldError',
     'StopIf',
