@@ -89,7 +89,7 @@ Strings
 
 To be honest, using this class is not recommended. It is provided only for ancient data formats.
 
->>> PaddedString(10, "utf8").build("Афон")
+>>> String(10).build("Афон")
 b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00\x00'
 
 ``PascalString`` is a variable length string that is prefixed by a length field. This scheme was invented in Pascal language that put ``Byte`` field instead of C convention of appending null byte at the end. Note that the length field does not need to be Byte, and can also be variable length itself, as shown below. VarInt is recommended when designing new protocols.

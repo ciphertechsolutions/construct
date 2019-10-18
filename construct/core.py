@@ -1,10 +1,21 @@
 # -*- coding: utf-8 -*-
+import binascii
+import codecs
+import collections
+import functools
+import hashlib
+import importlib
+import importlib.machinery
+import importlib.util
+import io
+import itertools
+import os
+import pickle
+import struct
+import sys
 
-import struct, io, binascii, itertools, collections, pickle, sys, os, hashlib, importlib, importlib.machinery, importlib.util
-
-from construct.lib import *
 from construct.expr import *
-from construct.version import *
+from construct.lib import *
 
 
 # ===============================================================================
@@ -217,6 +228,8 @@ class CipherError(ConstructError):
 
 def singleton(arg):
     x = arg()
+    x.__reduce__ = lambda: arg.__name__
+    functools.update_wrapper(x, arg, updated=[])
     return x
 
 
@@ -1885,22 +1898,39 @@ class ZigZag(Construct):
 # strings
 # ===============================================================================
 
-#: Explicitly supported encodings (by PaddedString and CString classes).
-#:
-possiblestringencodings = dict(
-    ascii=1,
-    utf8=1, utf_8=1, u8=1,
-    utf16=2, utf_16=2, u16=2, utf_16_be=2, utf_16_le=2,
-    utf32=4, utf_32=4, u32=4, utf_32_be=4, utf_32_le=4,
+# must be ordered largest to smallest
+_BOM_BYTES = (
+    codecs.BOM_UTF32_LE,
+    codecs.BOM_UTF32_BE,
+    codecs.BOM_UTF16_LE,
+    codecs.BOM_UTF16_BE,
+    codecs.BOM_UTF8,
 )
 
 
-def encodingunit(encoding):
-    """Used internally."""
-    encoding = encoding.replace("-", "_").lower()
-    if encoding not in possiblestringencodings:
-        raise StringError("encoding %r not found among %r" % (encoding, possiblestringencodings,))
-    return bytes(possiblestringencodings[encoding])
+def _encodingunit(encoding):
+    r"""
+    Used internally.
+
+    >>> _encodingunit('utf-8')
+    b'\x00'
+    >>> _encodingunit('utf-16le')
+    b'\x00\x00'
+    >>> _encodingunit('utf-16')
+    b'\x00\x00'
+    >>> _encodingunit('utf-32')
+    b'\x00\x00\x00\x00'
+    >>> _encodingunit('cp950')
+    b'\x00'
+    """
+    # Check "basic" byte size without BOM mark
+    encoding = encoding.lower()
+    encoded = u'\0'.encode(encoding)
+    for bom_bytes in _BOM_BYTES:
+        if encoded.startswith(bom_bytes) and len(bom_bytes) < len(encoded):
+            encoded = encoded[len(bom_bytes):]
+            break
+    return bytes(len(encoded))
 
 
 class StringEncoded(Adapter):
@@ -1939,7 +1969,7 @@ class StringEncoded(Adapter):
         # return f"({self.subcon._compilebuild(code)}).encode({repr(self.encoding)})"
 
 
-def PaddedString(length, encoding):
+def String(length, encoding='utf8', remove_padding=True):
     r"""
     Configurable, fixed-length or variable-length string field.
 
@@ -1947,11 +1977,9 @@ def PaddedString(length, encoding):
     Length is an integer or context lambda. When building, the string is encoded and then padded to specified length.
     If encoded string is larger than the specified length, it fails with PaddingError. Size is same as length parameter.
 
-    .. warning:: PaddedString and CString only support encodings explicitly listed in
-    :class:`~construct.core.possiblestringencodings` .
-
     :param length: integer or context lambda, length in bytes (not unicode characters)
     :param encoding: string like: utf8 utf16 utf32 ascii
+    :param bool remove_padding: Whether null padding at end of string should be remove before decoding to unicode.
 
     :raises StringError: building a non-unicode string
     :raises StringError: selected encoding is not on supported list
@@ -1960,13 +1988,18 @@ def PaddedString(length, encoding):
 
     Example::
 
-        >>> d = PaddedString(10, "utf8")
+        >>> d = String(10, "utf8")
         >>> d.build(u"Афон")
         b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00\x00'
         >>> d.parse(_)
         u'Афон'
     """
-    macro = StringEncoded(FixedSized(length, NullStripped(GreedyBytes, pad=encodingunit(encoding))), encoding)
+    if remove_padding:
+        # TODO: Support encodings with dynamic number of unit sizes.
+        subcon = NullStripped(GreedyBytes, pad=_encodingunit(encoding))
+    else:
+        subcon = GreedyBytes
+    macro = StringEncoded(FixedSized(length, subcon), encoding)
 
     def _emitfulltype(ksy, bitwise):
         return dict(size=length, type="strz", encoding=encoding)
@@ -2011,7 +2044,7 @@ def PascalString(lengthfield, encoding):
     return macro
 
 
-def CString(encoding):
+def CString(encoding='utf8'):
     r"""
     String ending in a terminating null byte (or null bytes in case of UTF16 UTF32).
 
@@ -2031,7 +2064,7 @@ def CString(encoding):
         >>> d.parse(_)
         u'Афон'
     """
-    macro = StringEncoded(NullTerminated(GreedyBytes, term=encodingunit(encoding)), encoding)
+    macro = StringEncoded(NullTerminated(GreedyBytes, term=_encodingunit(encoding)), encoding)
 
     def _emitfulltype(ksy, bitwise):
         return dict(type="strz", encoding=encoding)
@@ -2040,7 +2073,7 @@ def CString(encoding):
     return macro
 
 
-def GreedyString(encoding):
+def GreedyString(encoding='utf8'):
     r"""
     String that reads entire stream until EOF, and writes a given string as-is. Analog to
     :class:`~construct.core.GreedyBytes` but also applies unicode-to-bytes encoding.

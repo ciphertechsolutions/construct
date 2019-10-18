@@ -287,10 +287,10 @@ def test_zigzag_regression():
     d.build(dict(namelen=400))
 
 
-def test_paddedstring():
-    common(PaddedString(10, "utf8"), b"hello\x00\x00\x00\x00\x00", u"hello", 10)
+def test_String():
+    common(String(10, "utf8"), b"hello\x00\x00\x00\x00\x00", u"hello", 10)
 
-    d = PaddedString(100, "ascii")
+    d = String(100, "ascii")
     assert d.parse(b"X" * 100) == u"X" * 100
     assert d.build(u"X" * 100) == b"X" * 100
     with pytest.raises(PaddingError):
@@ -299,14 +299,14 @@ def test_paddedstring():
     for e, us in [("utf8", 1), ("utf16", 2), ("utf_16_le", 2), ("utf32", 4), ("utf_32_le", 4)]:
         s = u"Афон"
         data = (s.encode(e) + bytes(100))[:100]
-        common(PaddedString(100, e), data, s, 100)
+        common(String(100, e), data, s, 100)
         s = u""
         data = bytes(100)
-        common(PaddedString(100, e), data, s, 100)
+        common(String(100, e), data, s, 100)
 
-    for e in ["ascii","utf8","utf16","utf-16-le","utf32","utf-32-le"]:
-        assert PaddedString(10, e).sizeof() == 10
-        assert PaddedString(this.n, e).sizeof(n=10) == 10
+    for e in ["ascii", "utf8", "utf16", "utf-16-le", "utf32", "utf-32-le"]:
+        assert String(10, e).sizeof() == 10
+        assert String(this.n, e).sizeof(n=10) == 10
 
 
 def test_pascalstring():
@@ -2503,7 +2503,7 @@ def test_exportksy():
         "int32le" / BytesInteger(4, swapped=True),
         "varint" / VarInt,
 
-        "string1" / PaddedString(10, "utf8"),
+        "string1" / String(10, "utf8"),
         "string2" / PascalString(Byte, "utf8"),
         "string3" / CString("utf8"),
         "string4" / GreedyString("utf8"),
