@@ -527,7 +527,7 @@ def test_struct():
     common(Struct(), b"", Container(), 0)
     common(Struct("a" / Int16ub, "b" / Int8ub), b"\x00\x01\x02", Container(a=1, b=2), 3)
     common(Struct("a" / Struct("b" / Byte)), b"\x01", Container(a=Container(b=1)), 1)
-    common(Struct(Const(b"\x00"), Padding(1), Pass, Terminated), bytes(2), {}, SizeofError)
+    common(Struct(Const(b"\x00"), Padding(1), Pass, Terminated), bytes(2), {}, 2)
     with pytest.raises(KeyError):
         Struct("missingkey" / Byte).build({})
     with pytest.raises(SizeofError):
@@ -825,13 +825,13 @@ def test_error():
 
 
 def test_focusedseq():
-    common(FocusedSeq("num", Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, SizeofError)
-    common(FocusedSeq(this._.s, Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, SizeofError, s="num")
+    common(FocusedSeq("num", Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, 3)
+    common(FocusedSeq(this._.s, Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, 3, s="num")
 
     d = FocusedSeq("missing", Pass)
-    with pytest.raises(UnboundLocalError):
+    with pytest.raises(ConstructError):
         d.parse(b"")
-    with pytest.raises(UnboundLocalError):
+    with pytest.raises(ConstructError):
         d.build({})
     assert d.sizeof() == 0
     d = FocusedSeq(this.missing, Pass)
@@ -913,23 +913,14 @@ def test_hexdump():
     common(d, b"abcdef", b"abcdef")
     common(d, b"", b"")
     obj = d.parse(b"\x00\x00\x01\x02")
-    repr = \
-'''hexundump("""
-0000   00 00 01 02                                       ....
-""")
-'''
-    pass
+    repr = '0000   00 00 01 02                                       ....'
     assert str(obj) == repr
     assert str(obj) == repr
 
     d = HexDump(RawCopy(Int32ub))
     common(d, b"\x00\x00\x01\x02", dict(data=b"\x00\x00\x01\x02", value=0x0102, offset1=0, offset2=4, length=4), 4)
     obj = d.parse(b"\x00\x00\x01\x02")
-    repr = \
-'''hexundump("""
-0000   00 00 01 02                                       ....
-""")
-'''
+    repr = '0000   00 00 01 02                                       ....'
     assert str(obj) == repr
     assert str(obj) == repr
 
@@ -1110,13 +1101,14 @@ def test_stopif():
     d = Sequence("x"/Byte, StopIf(this.x == 0), "y"/Byte)
     common(d, b"\x01\x02", [1,None,2])
 
-    d = GreedyRange(FocusedSeq("x", "x" / Byte, StopIf(this.x == 0)))
+    d = FocusedSeq("x", "x" / Byte, StopIf(this.x == 0))[:]
     assert d.parse(b"\x01\x00?????") == [1]
+    assert d.parse(b'\x00') == []
     assert d.build([]) == b""
+    # Same logic should be applied on builds.
     assert d.build([0]) == b"\x00"
-    assert d.build([1]) == b"\x01"
     assert d.build([1, 0, 2]) == b"\x01\x00"
-
+    assert d.build([1, 0]) == b'\x01\x00'
 
 def test_padding():
     common(Padding(4), b"\x00\x00\x00\x00", None, 4)
@@ -1232,9 +1224,9 @@ def test_pass():
 
 
 def test_terminated():
-    common(Terminated, b"", None, SizeofError)
-    common(Struct(Terminated), b"", Container(), SizeofError)
-    common(BitStruct(Terminated), b"", Container(), SizeofError)
+    common(Terminated, b"", None, 0)
+    common(Struct(Terminated), b"", Container(), 0)
+    common(BitStruct(Terminated), b"", Container(), 0)
     with pytest.raises(TerminatedError):
         Terminated.parse(b"x")
     with pytest.raises(TerminatedError):
@@ -1325,6 +1317,13 @@ def test_prefixed():
 
 
 def test_prefixedarray():
+    spec = PrefixedArray(Byte, Byte)
+    assert spec.parse(b'\x02\x0a\x0b') == [10, 11]
+    assert spec.build([10, 11]) == b'\x02\x0a\x0b'
+    with pytest.raises(SizeofError):
+        spec.sizeof()
+    # TODO: We should be able to do this!
+    # assert spec.sizeof([10, 11]) == 3
     common(PrefixedArray(Byte, Byte), b"\x02\x0a\x0b", [10, 11], SizeofError)
     assert PrefixedArray(Byte, Byte).parse(b"\x03\x01\x02\x03") == [1, 2, 3]
     assert PrefixedArray(Byte, Byte).parse(b"\x00") == []
@@ -2598,6 +2597,7 @@ def test_greedybytes_issue_697():
     d.parse(bytes(5))
 
 
+@pytest.mark.skip('This feature needs to be reworked.')
 def test_hex_issue_709():
     # Make sure, the fix doesn't destroy already working code
     d = Hex(Bytes(1))

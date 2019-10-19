@@ -191,9 +191,15 @@ class Path(ExprMixin):
         return self.__field
 
     def __getattr__(self, name):
+        # Ignore __wrapped__ because this causes issues with introspection.
+        if name == '__wrapped__':
+            return None
         return Path(self.__name, name, self)
 
     def __getitem__(self, name):
+        # Ignore __wrapped__ because this causes issues with introspection.
+        if name == '__wrapped__':
+            return None
         return Path(self.__name, name, self)
 
 

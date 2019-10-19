@@ -13,6 +13,7 @@ import os
 import pickle
 import struct
 import sys
+import warnings
 
 from construct.expr import *
 from construct.lib import *
@@ -1063,6 +1064,8 @@ class Bytes(Construct):
         >>> d.parse(b"\x04beef")
         Container(length=4, data=b'beef')
         >>> d.sizeof()
+        Traceback (most recent call last):
+            ...
         construct.core.SizeofError: cannot calculate size, key not found in context
     """
 
@@ -1174,7 +1177,13 @@ def Bitwise(subcon):
 
     try:
         size = subcon.sizeof()
-        macro = Transformed(subcon, bytes2bits, size // 8, bits2bytes, size // 8)
+        # TODO: If size is 0 we are going to use Restreamed to replicate the way this worked when we
+        #   had a zero length construct like Terminated.
+        #   Determine what the different of Restreamed and Transformed is
+        if size == 0:
+            macro = Restreamed(subcon, bytes2bits, 1, bits2bytes, 8, lambda n: n // 8)
+        else:
+            macro = Transformed(subcon, bytes2bits, size // 8, bits2bytes, size // 8)
     except SizeofError:
         macro = Restreamed(subcon, bytes2bits, 1, bits2bytes, 8, lambda n: n // 8)
 
@@ -1266,7 +1275,7 @@ class FormatField(Construct):
         >>> d.parse(b"\x01\x00")
         256
         >>> d.build(256)
-        b"\x01\x00"
+        b'\x01\x00'
         >>> d.sizeof()
         2
     """
@@ -1945,8 +1954,8 @@ class StringEncoded(Adapter):
     def _decode(self, obj, context, path):
         try:
             return obj.decode(self.encoding)
-        except:
-            raise StringError(f"cannot use encoding {self.encoding!r} to decode {obj!r}")
+        except UnicodeDecodeError as e:
+            raise StringError(f"cannot use encoding {self.encoding!r} to decode {obj!r}: {e}")
 
     def _encode(self, obj, context, path):
         if not isinstance(obj, str):
@@ -1955,8 +1964,8 @@ class StringEncoded(Adapter):
             return b""
         try:
             return obj.encode(self.encoding)
-        except:
-            raise StringError(f"cannot use encoding {self.encoding!r} to encode {obj!r}")
+        except UnicodeEncodeError as e:
+            raise StringError(f"cannot use encoding {self.encoding!r} to encode {obj!r}: {e}")
 
     def _emitparse(self, code):
         raise NotImplementedError
@@ -1992,7 +2001,37 @@ def String(length, encoding='utf8', remove_padding=True):
         >>> d.build(u"Афон")
         b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00\x00'
         >>> d.parse(_)
-        u'Афон'
+        'Афон'
+        >>> StringEncoded(Bytes(10), 'utf-16').parse(b'h\x00e\x00l\x00l\x00o\x00')
+        'hello'
+        >>> String(10, encoding='utf-16').parse(b'h\x00e\x00l\x00l\x00o\x00')
+        'hello'
+        >>> String(12, encoding='utf-16').build('hello')
+        b'\xff\xfeh\x00e\x00l\x00l\x00o\x00'
+        >>> String(10, encoding='utf-16le').build('hello')
+        b'h\x00e\x00l\x00l\x00o\x00'
+        >>> String(16, encoding='utf-16le').build('hello')
+        b'h\x00e\x00l\x00l\x00o\x00\x00\x00\x00\x00\x00\x00'
+        >>> String(16, encoding='utf-16').parse(b'h\x00e\x00l\x00l\x00o\x00\x00\x00\x00\x00\x00\x00')
+        'hello'
+
+        Works with utf-32 in the same way.
+        >>> String(20, encoding='utf-32-le').build('hello')
+        b'h\x00\x00\x00e\x00\x00\x00l\x00\x00\x00l\x00\x00\x00o\x00\x00\x00'
+        >>> String(20, encoding='utf-32').parse(b'h\x00\x00\x00e\x00\x00\x00l\x00\x00\x00l\x00\x00\x00o\x00\x00\x00')
+        'hello'
+
+        Also, still works with regular single byte encodings.
+        >>> String(5).build(u'hello')
+        b'hello'
+        >>> String(5).parse(b'hello')
+        'hello'
+
+        A StringError (type of ConstructError) will be raised if the string cannot be decoded with the given encoding.
+        >>> String(8).parse(b'hello\x00\xff\xff')
+        Traceback (most recent call last):
+            ...
+        construct.core.StringError: 'utf-8' codec can't decode byte 0xff in position 6: invalid start byte
     """
     if remove_padding:
         # TODO: Support encodings with dynamic number of unit sizes.
@@ -2006,6 +2045,11 @@ def String(length, encoding='utf8', remove_padding=True):
 
     macro._emitfulltype = _emitfulltype
     return macro
+
+
+def PaddedString(length, encoding='utf8'):
+    warnings.warn('PaddedString has been renamed to String', DeprecationWarning)
+    return String(length, encoding, remove_padding=True)
 
 
 def PascalString(lengthfield, encoding):
@@ -2025,7 +2069,7 @@ def PascalString(lengthfield, encoding):
         >>> d.build(u"Афон")
         b'\x08\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd'
         >>> d.parse(_)
-        u'Афон'
+        'Афон'
     """
     macro = StringEncoded(Prefixed(lengthfield, GreedyBytes), encoding)
 
@@ -2062,7 +2106,25 @@ def CString(encoding='utf8'):
         >>> d.build(u"Афон")
         b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00'
         >>> d.parse(_)
-        u'Афон'
+        'Афон'
+        >>> CString().parse(b'hello\x00')
+        'hello'
+        >>> CString().parse(b'hello\x00\xff\xff')
+        'hello'
+        >>> CString(encoding='utf-16').parse(b'\xff\xfeh\x00e\x00l\x00l\x00o\x00\x00\x00')  # FFFE is BOM for utf-16-le
+        'hello'
+        >>> CString(encoding='utf-16').parse(b'h\x00e\x00l\x00l\x00o\x00\x00\x00')
+        'hello'
+        >>> CString(encoding='utf-16').build('hello')
+        b'\xff\xfeh\x00e\x00l\x00l\x00o\x00\x00\x00'
+        >>> CString(encoding='utf-32').build('hello')
+        b'\xff\xfe\x00\x00h\x00\x00\x00e\x00\x00\x00l\x00\x00\x00l\x00\x00\x00o\x00\x00\x00\x00\x00\x00\x00'
+
+        Make sure to specify 'le' or 'be' in the encoding if you don't want BOM markers when building.
+        >>> CString(encoding='utf-32-le').build('hello')
+        b'h\x00\x00\x00e\x00\x00\x00l\x00\x00\x00l\x00\x00\x00o\x00\x00\x00\x00\x00\x00\x00'
+        >>> CString(encoding='utf-32-be').build('hello')
+        b'\x00\x00\x00h\x00\x00\x00e\x00\x00\x00l\x00\x00\x00l\x00\x00\x00o\x00\x00\x00\x00'
     """
     macro = StringEncoded(NullTerminated(GreedyBytes, term=_encodingunit(encoding)), encoding)
 
@@ -2089,7 +2151,7 @@ def GreedyString(encoding='utf8'):
         >>> d.build(u"Афон")
         b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd'
         >>> d.parse(_)
-        u'Афон'
+        'Афон'
     """
     macro = StringEncoded(GreedyBytes, encoding)
 
@@ -2184,7 +2246,7 @@ class Enum(Adapter):
     Example::
 
         >>> d = Enum(Byte, one=1, two=2, four=4, eight=8)
-        >>> d.parse(b"\x01")
+        >>> str(d.parse(b"\x01"))
         'one'
         >>> int(d.parse(b"\x01"))
         1
@@ -2195,7 +2257,7 @@ class Enum(Adapter):
 
         >>> d.build(d.one or "one" or 1)
         b'\x01'
-        >>> d.one
+        >>> str(d.one)
         'one'
 
         import enum
@@ -2370,8 +2432,9 @@ class Mapping(Adapter):
 
         >>> x = object
         >>> d = Mapping(Byte, {x:0})
-        >>> d.parse(b"\x00")
-        x
+        >>> y = d.parse(b"\x00")
+        >>> y is x
+        True
         >>> d.build(x)
         b'\x00'
     """
@@ -2450,9 +2513,9 @@ class Struct(Construct):
 
         >>> d = Struct("num"/Int8ub, "data"/Bytes(this.num))
         >>> d.parse(b"\x04DATA")
-        Container(num=4, data=b"DATA")
+        Container(num=4, data=b'DATA')
         >>> d.build(dict(num=4, data=b"DATA"))
-        b"\x04DATA"
+        b'\x04DATA'
 
         >>> d = Struct(Const(b"MZ"), Padding(2), Pass, Terminated)
         >>> d.build({})
@@ -2465,7 +2528,7 @@ class Struct(Construct):
         >>> d = Struct(
         ...     "animal" / Enum(Byte, giraffe=1),
         ... )
-        >>> d.animal.giraffe
+        >>> str(d.animal.giraffe)
         'giraffe'
         >>> d = Struct(
         ...     "count" / Byte,
@@ -2475,10 +2538,10 @@ class Struct(Construct):
         b'\x0312'
 
         Alternative syntax (not recommended):
-        >>> ("a"/Byte + "b"/Byte + "c"/Byte + "d"/Byte)
+        >>> ("a"/Byte + "b"/Byte + "c"/Byte + "d"/Byte)  # doctest: +SKIP
 
         Alternative syntax, but requires Python 3.6 or any PyPy:
-        >>> Struct(a=Byte, b=Byte, c=Byte, d=Byte)
+        >>> Struct(a=Byte, b=Byte, c=Byte, d=Byte)  # doctest: +SKIP
     """
 
     def __init__(self, *subcons, **subconskw):
@@ -2625,12 +2688,12 @@ class Sequence(Construct):
         >>> d.build([0, 1.23])
         b'\x00?\x9dp\xa4'
         >>> d.parse(_)
-        [0, 1.2300000190734863] # a ListContainer
+        ListContainer([0, 1.2300000190734863])
 
         >>> d = Sequence(
         ...     "animal" / Enum(Byte, giraffe=1),
         ... )
-        >>> d.animal.giraffe
+        >>> str(d.animal.giraffe)
         'giraffe'
         >>> d = Sequence(
         ...     "count" / Byte,
@@ -2640,10 +2703,10 @@ class Sequence(Construct):
         b'\x0312'
 
         Alternative syntax (not recommended):
-        >>> (Byte >> Byte >> "c"/Byte >> "d"/Byte)
+        >>> (Byte >> Byte >> "c"/Byte >> "d"/Byte)  # doctest: +SKIP
 
         Alternative syntax, but requires Python 3.6 or any PyPy:
-        >>> Sequence(a=Byte, b=Byte, c=Byte, d=Byte)
+        >>> Sequence(a=Byte, b=Byte, c=Byte, d=Byte)  # doctest: +SKIP
     """
 
     def __init__(self, *subcons, **subconskw):
@@ -2781,11 +2844,11 @@ class Range(Subconstruct):
         >>> d.build([1,2])
         Traceback (most recent call last):
             ...
-        core.RangeError: [(building)] expected from 3 to 5 elements, found 2
+        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 2
         >>> d.build([1,2,3,4,5,6])
         Traceback (most recent call last):
             ...
-        core.RangeError: [(building)] expected from 3 to 5 elements, found 6
+        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 6
 
         # Alternative syntax:
         >>> d = Byte[3:5]
@@ -2796,11 +2859,11 @@ class Range(Subconstruct):
         >>> d.build([1,2])
         Traceback (most recent call last):
             ...
-        core.RangeError: [(building)] expected from 3 to 5 elements, found 2
+        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 2
         >>> d.build([1,2,3,4,5,6])
         Traceback (most recent call last):
             ...
-        core.RangeError: [(building)] expected from 3 to 5 elements, found 6
+        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 6
 
         # Infinite/max ints are used if not provided.
         >>> d = Range(3, None, Byte) or Byte[3:]
@@ -2811,7 +2874,7 @@ class Range(Subconstruct):
         >>> d.build([1,2])
         Traceback (most recent call last):
             ...
-        core.RangeError: [(building)] expected from 3 to infinite elements, found 2
+        construct.core.RangeError: [(building)] expected from 3 to infinite elements, found 2
         >>> d = Range(None, 5, Byte) or Byte[:5]
         >>> d.build([1, 2, 3, 4])
         b'\x01\x02\x03\x04'
@@ -2820,7 +2883,7 @@ class Range(Subconstruct):
         >>> d.build([1,2,3,4,5,6])
         Traceback (most recent call last):
             ...
-        core.RangeError: [(building)] expected from 0 to 5 elements, found 6
+        construct.core.RangeError: [(building)] expected from 0 to 5 elements, found 6
         >>> d = Range(None, None, Byte) or GreedyRange(Byte) or Byte[:]
         >>> d.build([1, 2, 3, 4])
         b'\x01\x02\x03\x04'
@@ -3025,11 +3088,11 @@ class RepeatUntil(Subconstruct):
         >>> d.build(range(20))
         b'\x00\x01\x02\x03\x04\x05\x06\x07\x08'
         >>> d.parse(b"\x01\xff\x02")
-        [1, 255]
+        ListContainer([1, 255])
 
         >>> d = RepeatUntil(lambda x,lst,ctx: lst[-2:] == [0,0], Byte)
         >>> d.parse(b"\x01\x00\x00\xff")
-        [1, 0, 0]
+        ListContainer([1, 0, 0])
     """
 
     def __init__(self, predicate, subcon, discard=False):
@@ -3130,7 +3193,7 @@ class Renamed(Subconstruct):
     Example::
 
         >>> "number" / Int32ub
-        <Renamed: number>
+        <Renamed number <FormatField>>
     """
 
     def __init__(self, subcon, newname=None, newdocs=None, newparsed=None):
@@ -3206,7 +3269,9 @@ class Const(Subconstruct):
         >>> d.build(None)
         b'IHDR'
         >>> d.parse(b"JPEG")
-        construct.core.ConstError: expected b'IHDR' but parsed b'JPEG'
+        Traceback (most recent call last):
+            ...
+        construct.core.ConstError: parsing expected b'IHDR' but parsed b'JPEG'
 
         >>> d = Const(255, Int32ul)
         >>> d.build(None)
@@ -3287,8 +3352,9 @@ class Computed(Construct):
 
         >>> import os
         >>> d = Computed(lambda ctx: os.urandom(10))
-        >>> d.parse(b"")
-        b'\x98\xc2\xec\x10\x07\xf5\x8e\x98\xc2\xec'
+
+        # >>> d.parse(b"")
+        # b'\x98\xc2\xec\x10\x07\xf5\x8e\x98\xc2\xec'
     """
 
     def __init__(self, func):
@@ -3612,7 +3678,7 @@ class FocusedSeq(Construct):
         >>> d = FocusedSeq("animal",
         ...     "animal" / Enum(Byte, giraffe=1),
         ... )
-        >>> d.animal.giraffe
+        >>> str(d.animal.giraffe)
         'giraffe'
         >>> d = FocusedSeq("count",
         ...     "count" / Byte,
@@ -3641,24 +3707,54 @@ class FocusedSeq(Construct):
     def _parse(self, stream, context, path):
         context = context.create_child(_io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
+
+        found = False  # Must use separate flag because returning a parse result of None is valid.
+        finalret = None
         for i, sc in enumerate(self.subcons):
             parseret = sc._parsereport(stream, context, path)
+            context[i] = parseret
             if sc.name:
                 context[sc.name] = parseret
-            if sc.name == parsebuildfrom:
+            if sc.name == parsebuildfrom or i == parsebuildfrom:
                 finalret = parseret
+                found = True
+
+        if not found:
+            raise ConstructError("Unable to find entry: {}".format(parsebuildfrom))
+
         return finalret
 
     def _build(self, obj, stream, context, path):
         context = context.create_child(_io=stream, _subcons=self._subcons)
         parsebuildfrom = evaluate(self.parsebuildfrom, context)
         context[parsebuildfrom] = obj
+
+        found = False
+        finalret = None
         for i, sc in enumerate(self.subcons):
-            buildret = sc._build(obj if sc.name == parsebuildfrom else None, stream, context, path)
+            is_target = sc.name == parsebuildfrom or i == parsebuildfrom
+
+            if is_target:
+                sub_obj = obj
+            else:
+                # Pull from user provided context incase it is needed for building.
+                sub_obj = context._.get(sc.name, context._.get(i, None))
+
+            # We want to build all entries, even if it is not the focus because
+            # building might affect the context.
+            buildret = sc._build(sub_obj, stream, context, path)
+
+            context[i] = buildret
             if sc.name:
                 context[sc.name] = buildret
-            if sc.name == parsebuildfrom:
+
+            if is_target:
                 finalret = buildret
+                found = True
+
+        if not found:
+            raise ConstructError("Unable to find entry: {}".format(parsebuildfrom))
+
         return finalret
 
     def _sizeof(self, context, path):
@@ -3972,11 +4068,7 @@ class Hex(Adapter):
         >>> d = Hex(RawCopy(Int32ub))
         >>> obj = d.parse(b"\x00\x00\x01\x02")
         >>> obj
-        {'data': b'\x00\x00\x01\x02',
-         'length': 4,
-         'offset1': 0,
-         'offset2': 4,
-         'value': 258}
+        {'data': b'\x00\x00\x01\x02', 'value': 258, 'offset1': 0, 'offset2': 4, 'length': 4}
         >>> print(obj)
         unhexlify('00000102')
     """
@@ -4012,7 +4104,7 @@ class HexDump(Adapter):
 
     Parsing results in bytes-alike or dict-alike object, whose only difference from original is pretty-printing. If you
     look at the result, you will be presented with its `repr` which remains as-is. If you print it, then you will see
-    its `str` whic is a hexlified representation. Building and sizeof defer to subcon.
+    its `str` which is a hexlified representation. Building and sizeof defer to subcon.
 
     To obtain a hexlified string (like before Hex HexDump changed semantics) use construct.lib.hexdump on parsed results.
 
@@ -4023,22 +4115,13 @@ class HexDump(Adapter):
         >>> obj
         b'\x00\x00\x01\x02'
         >>> print(obj)
-        hexundump('''
         0000   00 00 01 02                                       ....
-        ''')
-
         >>> d = HexDump(RawCopy(Int32ub))
         >>> obj = d.parse(b"\x00\x00\x01\x02")
         >>> obj
-        {'data': b'\x00\x00\x01\x02',
-         'length': 4,
-         'offset1': 0,
-         'offset2': 4,
-         'value': 258}
+        {'data': b'\x00\x00\x01\x02', 'value': 258, 'offset1': 0, 'offset2': 4, 'length': 4}
         >>> print(obj)
-        hexundump('''
         0000   00 00 01 02                                       ....
-        ''')
     """
 
     def _decode(self, obj, context, path):
@@ -4118,25 +4201,26 @@ class Union(Construct):
         ...     "shorts" / Int16ub[4],
         ...     "chars" / Byte[8],
         ... )
-        >>> d.parse(b"12345678")
-        Container(raw=b'12345678', ints=[825373492, 892745528], shorts=[12594, 13108, 13622, 14136], chars=[49, 50, 51, 52, 53, 54, 55, 56])
+        >>> d.parse(b"12345678") # doctest: +NORMALIZE_WHITESPACE
+        Container(raw=b'12345678', ints=ListContainer([825373492, 892745528]), shorts=ListContainer([12594, 13108, 13622, 14136]), chars=ListContainer([49, 50, 51, 52, 53, 54, 55, 56]))
+
         >>> d.build(dict(chars=range(8)))
         b'\x00\x01\x02\x03\x04\x05\x06\x07'
 
         >>> d = Union(None,
         ...     "animal" / Enum(Byte, giraffe=1),
         ... )
-        >>> d.animal.giraffe
+        >>> str(d.animal.giraffe)
         'giraffe'
         >>> d = Union(None,
         ...     "chars" / Byte[4],
         ...     "data" / Bytes(lambda this: this._subcons.chars.sizeof()),
         ... )
         >>> d.parse(b"\x01\x02\x03\x04")
-        Container(chars=[1, 2, 3, 4], data=b'\x01\x02\x03\x04')
+        Container(chars=ListContainer([1, 2, 3, 4]), data=b'\x01\x02\x03\x04')
 
         Alternative syntax, but requires Python 3.6 or any PyPy:
-        >>> Union(0, raw=Bytes(8), ints=Int32ub[2], shorts=Int16ub[4], chars=Byte[8])
+        >>> Union(0, raw=Bytes(8), ints=Int32ub[2], shorts=Int16ub[4], chars=Byte[8])  # doctest: +SKIP
     """
 
     def __init__(self, parsefrom, *subcons, **subconskw):
@@ -4296,7 +4380,7 @@ class Select(Construct):
         b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00'
 
         Alternative syntax, but requires Python 3.6 or any PyPy:
-        >>> Select(num=Int32ub, text=CString("utf8"))
+        >>> Select(num=Int32ub, text=CString("utf8"))  # doctest: +SKIP
     """
 
     def __init__(self, *subcons, **subconskw):
@@ -4348,8 +4432,8 @@ def Optional(subcon):
         >>> d = Optional(Int64ul)
         >>> d.parse(b"12345678")
         4050765991979987505
-        >>> d.parse(b"")
-        None
+        >>> d.parse(b"") is None
+        True
         >>> d.build(1)
         b'\x01\x00\x00\x00\x00\x00\x00\x00'
         >>> d.build(None)
@@ -4413,9 +4497,9 @@ class IfThenElse(Construct):
     Example::
 
         >>> d = IfThenElse(this.x > 0, VarInt, Byte)
-        >>> d.build(255, dict(x=1))
+        >>> d.build(255, x=1)
         b'\xff\x01'
-        >>> d.build(255, dict(x=0))
+        >>> d.build(255, x=0)
         b'\xff'
     """
 
@@ -4488,7 +4572,7 @@ class Switch(Construct):
         >>> d.parse(b"\x01", n=255)
         1
         >>> d.build(1, n=255)
-        b"\x01"
+        b'\x01'
     """
 
     def __init__(self, keyfunc, cases, default=None):
@@ -4554,9 +4638,19 @@ class StopIf(Construct):
 
     Example::
 
-        >>> Struct('x'/Byte, StopIf(this.x == 0), 'y'/Byte)
-        >>> Sequence('x'/Byte, StopIf(this.x == 0), 'y'/Byte)
-        >>> GreedyRange(FocusedSeq(0, 'x'/Byte, StopIf(this.x == 0)))
+        >>> spec = Struct('x'/Byte, StopIf(this.x == 0), 'y'/Byte)
+        >>> spec.parse(b'\x01\x02')
+        Container(x=1, y=2)
+        >>> spec.parse(b'\x00\x02')
+        Container(x=0)
+        >>> spec = Sequence('x'/Byte, StopIf(this.x == 0), 'y'/Byte)
+        >>> spec.parse(b'\x01\x02')
+        ListContainer([1, None, 2])
+        >>> spec.parse(b'\x00\x02')
+        ListContainer([0])
+        >>> spec = FocusedSeq(0, 'x'/Byte, StopIf(this.x == 0))[:]
+        >>> spec.parse(b'\x01\x02\x03\x00\x04')
+        ListContainer([1, 2, 3])
     """
 
     def __init__(self, condfunc):
@@ -4619,8 +4713,8 @@ def Padding(length, pattern=b"\x00"):
         >>> d = Padding(4) or Padded(4, Pass)
         >>> d.build(None)
         b'\x00\x00\x00\x00'
-        >>> d.parse(b"****")
-        None
+        >>> d.parse(b"****") is None
+        True
         >>> d.sizeof()
         4
     """
@@ -4963,7 +5057,7 @@ class Peek(Subconstruct):
 
         >>> d = Sequence(Peek(Int8ub), Peek(Int16ub))
         >>> d.parse(b"\x01\x02")
-        [1, 258]
+        ListContainer([1, 258])
         >>> d.sizeof()
         0
     """
@@ -5076,7 +5170,7 @@ class Seek(Construct):
 
         >>> d = (Seek(5) >> Byte)
         >>> d.parse(b"01234x")
-        [5, 120]
+        ListContainer([5, 120])
 
         >>> d = (Bytes(10) >> Seek(5) >> Byte)
         >>> d.build([b"0123456789", None, 255])
@@ -5223,7 +5317,7 @@ class Terminated(Construct):
         return obj
 
     def _sizeof(self, context, path):
-        raise SizeofError(path=path)
+        return 0
 
 
 # ===============================================================================
@@ -5253,9 +5347,9 @@ class RawCopy(Subconstruct):
         >>> d.parse(b"\xff")
         Container(data=b'\xff', value=255, offset1=0, offset2=1, length=1)
         >>> d.build(dict(data=b"\xff"))
-        '\xff'
+        b'\xff'
         >>> d.build(dict(value=255))
-        '\xff'
+        b'\xff'
     """
 
     def _parse(self, stream, context, path):
@@ -5320,9 +5414,9 @@ def BitsSwapped(subcon):
 
         >>> d = Bitwise(Bytes(8))
         >>> d.parse(b"\x01")
-        '\x00\x00\x00\x00\x00\x00\x00\x01'
-        >>>> BitsSwapped(d).parse(b"\x01")
-        '\x01\x00\x00\x00\x00\x00\x00\x00'
+        b'\x00\x00\x00\x00\x00\x00\x00\x01'
+        >>> BitsSwapped(d).parse(b"\x01")
+        b'\x01\x00\x00\x00\x00\x00\x00\x00'
     """
 
     try:
@@ -5357,11 +5451,11 @@ class Prefixed(Subconstruct):
 
         >>> d = Prefixed(VarInt, GreedyRange(Int32ul))
         >>> d.parse(b"\x08abcdefgh")
-        [1684234849, 1751606885]
+        ListContainer([1684234849, 1751606885])
 
         >>> d = PrefixedArray(VarInt, Int32ul)
         >>> d.parse(b"\x02abcdefgh")
-        [1684234849, 1751606885]
+        ListContainer([1684234849, 1751606885])
     """
 
     def __init__(self, lengthfield, subcon, includelength=False):
@@ -5409,6 +5503,7 @@ class Prefixed(Subconstruct):
         ]
 
 
+# TODO: Remake this without using FocusedSeq and Rebuild.
 def PrefixedArray(countfield, subcon):
     r"""
     Prefixes an array with item count (as opposed to prefixed by byte count, see :class:`~construct.core.Prefixed`).
@@ -5426,11 +5521,11 @@ def PrefixedArray(countfield, subcon):
 
         >>> d = Prefixed(VarInt, GreedyRange(Int32ul))
         >>> d.parse(b"\x08abcdefgh")
-        [1684234849, 1751606885]
+        ListContainer([1684234849, 1751606885])
 
         >>> d = PrefixedArray(VarInt, Int32ul)
         >>> d.parse(b"\x02abcdefgh")
-        [1684234849, 1751606885]
+        ListContainer([1684234849, 1751606885])
     """
     macro = FocusedSeq("items",
         "count" / Rebuild(countfield, len_(this.items)),
@@ -5692,10 +5787,10 @@ class RestreamData(Subconstruct):
 
         >>> d = RestreamData(NullTerminated(GreedyBytes), Int16ub)
         >>> d.parse(b"\x01\x02\x00")
-        0x0102
+        258
         >>> d = RestreamData(FixedSized(2, GreedyBytes), Int16ub)
         >>> d.parse(b"\x01\x02\x00")
-        0x0102
+        258
     """
 
     def __init__(self, datafunc, subcon):
@@ -5877,8 +5972,8 @@ class ProcessXor(Subconstruct):
     Example::
 
         >>> d = ProcessXor(0xf0 or b'\xf0', Int16ub)
-        >>> d.parse(b"\x00\xff")
-        0xf00f
+        >>> hex(d.parse(b"\x00\xff"))
+        '0xf00f'
         >>> d.sizeof()
         2
     """
@@ -5948,11 +6043,11 @@ class ProcessRotateLeft(Subconstruct):
     Example::
 
         >>> d = ProcessRotateLeft(4, 1, Int16ub)
-        >>> d.parse(b'\x0f\xf0')
-        0xf00f
+        >>> hex(d.parse(b'\x0f\xf0'))
+        '0xf00f'
         >>> d = ProcessRotateLeft(4, 2, Int16ub)
-        >>> d.parse(b'\x0f\xf0')
-        0xff00
+        >>> hex(d.parse(b'\x0f\xf0'))
+        '0xff00'
         >>> d.sizeof()
         2
     """
@@ -6429,8 +6524,6 @@ class Lazy(Subconstruct):
 
         >>> d = Lazy(Byte)
         >>> x = d.parse(b'\x00')
-        >>> x
-        <function construct.core.Lazy._parse.<locals>.execute>
         >>> x()
         0
         >>> d.build(0)
@@ -6738,18 +6831,12 @@ class LazyBound(Construct):
 
     Example::
 
-        d = Struct(
-            "value" / Byte,
-            "next" / If(this.value > 0, LazyBound(lambda: d)),
-        )
-        >>> print(d.parse(b"\x05\x09\x00"))
-        Container:
-            value = 5
-            next = Container:
-                value = 9
-                next = Container:
-                    value = 0
-                    next = None
+        >>> d = Struct(
+        ...     "value" / Byte,
+        ...     "next" / If(this.value > 0, LazyBound(lambda: d)),
+        ... )
+        >>> d.parse(b"\x05\x09\x00")
+        Container(value=5, next=Container(value=9, next=Container(value=0, next=None)))
 
     ::
 
@@ -6817,7 +6904,7 @@ class ExprAdapter(Adapter):
 
 
 class ExprSymmetricAdapter(ExprAdapter):
-    """
+    r"""
     Macro around :class:`~construct.core.ExprAdapter`.
 
     :param subcon: Construct instance, subcon to adapt
@@ -6850,7 +6937,9 @@ class ExprValidator(Validator):
         >>> d.build(1)
         b'\x01'
         >>> d.build(88)
-        ValidationError: object failed validation: 88
+        Traceback (most recent call last):
+            ...
+        construct.core.ValidationError: object failed validation: 88
 
     """
 
@@ -6876,6 +6965,8 @@ def OneOf(subcon, valids):
         >>> d.parse(b"\x01")
         1
         >>> d.parse(b"\xff")
+        Traceback (most recent call last):
+            ...
         construct.core.ValidationError: object failed validation: 255
     """
     return ExprValidator(subcon, lambda obj, ctx: obj in valids)
