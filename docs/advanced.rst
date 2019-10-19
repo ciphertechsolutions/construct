@@ -74,15 +74,11 @@ Strings
 
     Unprefixed string literals like "text" are on Python 2 interpreted as bytes. This causes failures when using fields that operate on unicode objects only like String* classes.
 
-.. note::
-
-    Encodings like UTF8 UTF16 UTF32 (including little-endian) work fine with all String* classes. However two of them, PaddedString and CString, support only encodings listed explicitly in :class:`~construct.core.possiblestringencodings` .
-
-PaddedString is a fixed-length construct that pads built string with null bytes, and strips those same null bytes when parsing. Strings can also be trimmed when building. If you supply a too long string, the construct will chop it off apart instead of raising a StringError.
+String is a fixed-length construct that pads built string with null bytes, and strips those same null bytes when parsing. Strings can also be trimmed when building. If you supply a too long string, the construct will chop it off apart instead of raising a StringError.
 
 To be honest, using this class is not recommended. It is provided only for ancient data formats.
 
->>> PaddedString(10, "utf8").build("Афон")
+>>> String(10).build("Афон")
 b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00\x00'
 
 PascalString is a variable length string that is prefixed by a length field. This scheme was invented in Pascal language that put Byte field instead of C convention of appending null \\0 byte at the end. Note that the length field does not need to be Byte, and can also be variable length itself, as shown below. VarInt is recommended when designing new protocols.

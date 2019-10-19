@@ -168,19 +168,19 @@ def test_class_varint_build(benchmark):
     benchmark(d.build, 2 ** 64)
 
 
-def test_class_paddedstring_parse(benchmark):
-    d = PaddedString(100, "utf8")
+def test_class_String_parse(benchmark):
+    d = String(100, "utf8")
     benchmark(d.parse, b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00\x00' + bytes(100))
 
 
-def test_class_paddedstring_parse_compiled(benchmark):
-    d = PaddedString(100, "utf8")
+def test_class_String_parse_compiled(benchmark):
+    d = String(100, "utf8")
     d = d.compile()
     benchmark(d.parse, b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00\x00' + bytes(100))
 
 
-def test_class_paddedstring_build(benchmark):
-    d = PaddedString(100, "utf8")
+def test_class_String_build(benchmark):
+    d = String(100, "utf8")
     benchmark(d.build, u"Афон")
 
 
@@ -349,6 +349,7 @@ def test_class_array_build(benchmark):
 
 def test_class_greedyrange_parse(benchmark):
     d = GreedyRange(Byte)
+    print(d.parse(bytes(100)))
     benchmark(d.parse, bytes(100))
 
 
@@ -981,6 +982,7 @@ def test_overall_parse(benchmark):
 
 def test_overall_parse_compiled(benchmark):
     d = example.compile()
+    d.parse(exampledata)
     benchmark(d.parse, exampledata)
 
 
