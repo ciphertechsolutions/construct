@@ -1,3 +1,5 @@
+import pytest
+
 from tests.declarativeunittest import *
 from construct import *
 from construct.lib import *
@@ -85,7 +87,7 @@ def test_obj():
     )
     common(example, b"\x03\x07\xff", Container(items=[3,7,255]))
 
-@xfail(reason="faulty implementation, needs fixing")
+@pytest.mark.xfail(reason="faulty implementation, needs fixing")
 def test_list():
     assert repr(list_) == "list_"
     assert str(list_) == "list_"
@@ -112,7 +114,7 @@ def test_list():
     )
     common(example, b"\x03\x07\xff", Container(items=[3,7,255]))
 
-@xfail(reason="this expression does not support in operator")
+@pytest.mark.xfail(reason="this expression does not support in operator")
 def test_this_in_operator():
     d = Struct(
         "if"  / If(this.data     in [1,2,3], Const(b"4")),
