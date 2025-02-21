@@ -36,12 +36,9 @@ setup(
     python_requires = ">=3.8",
     install_requires = [],
     extras_require = {
-        "extras": extra_require
+        "extras": extra_require,
+        "tests": extra_require + ["pytest", "pytest-benchmark"],
     },
-    test_require = extra_require + [
-        "pytest",
-        "pytest-benchmark",
-    ],
     keywords = [
         "construct",
         "kaitai",
