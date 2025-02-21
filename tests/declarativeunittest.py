@@ -1,3 +1,5 @@
+# TODO: Replace this with a conftest.py
+
 import pytest
 
 xfail = pytest.mark.xfail
@@ -46,13 +48,13 @@ def commonhex(format, hexdata):
     commonbytes(format, binascii.unhexlify(hexdata))
 
 def commondumpdeprecated(format, filename):
-    filename = "tests/deprecated_gallery/blobs/" + filename
+    filename = os.path.join(os.path.dirname(__file__), "deprecated_gallery/blobs/" + filename)
     with open(filename,'rb') as f:
         data = f.read()
     commonbytes(format, data)
 
 def commondump(format, filename):
-    filename = "tests/gallery/blobs/" + filename
+    filename = os.path.join(os.path.dirname(__file__), "gallery/blobs/" + filename)
     with open(filename,'rb') as f:
         data = f.read()
     commonbytes(format, data)

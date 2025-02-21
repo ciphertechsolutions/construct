@@ -120,7 +120,7 @@ def test_swapbytes(data, swapped):
     (b"0000000011111111", b"1111111100000000"),
 ])
 def test_swapbytesinbits(data, swapped):
-    assert swapbytesinbits(data, swapped)
+    assert swapbytesinbits(data) == swapped
 
 
 @pytest.mark.parametrize("data,exception", [

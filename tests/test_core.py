@@ -1008,7 +1008,7 @@ def test_select():
     with pytest.raises(SizeofError):
         Select(Byte).sizeof()
 
-@xfail(not supportskwordered, reason="ordered kw was introduced in 3.6")
+
 def test_select_kwctor():
     d = Select(a=Int8ub, b=Int16ub, c=Int32ub)
     assert d.parse(b"\x01\x02\x03\x04") == 0x01

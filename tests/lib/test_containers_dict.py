@@ -280,7 +280,7 @@ def test_fullstrings():
 
     setGlobalPrintFullStrings()
 
-@xfail(not supportskwordered, reason="FlagsEnum members order must be identical to string representation")
+
 def test_falseflags():
     d = FlagsEnum(Byte, set=1, unset=2)
     c = d.parse(b"\x01")

@@ -163,60 +163,6 @@ class CipherError(ConstructError):
 # used internally
 #===============================================================================
 
-class Context(Container):
-    """Special type of Container used to store contextual information during processing."""
-
-    def __init__(self, _parsing=False, _building=False, _sizing=False, _io=None, _index=0, _subcons=None, **kwargs):
-        super(Context, self).__init__(
-            _=None,                   # Parent context.
-            _root=None,               # Root context.
-            _params=self,             # Global parameters.
-            # TODO: Perhaps have a "state" attribute instead to avoid contradictions due to multiple flags being true.
-            _parsing=_parsing,        # Processing parsing()?
-            _building=_building,      # Processing building()?
-            _sizing=_sizing,          # Processing sizeof()?
-            _io=_io,                  # Processing stream.
-            _index=_index,            # Current index (for Array)
-            _subcons=_subcons or [],  # Current subcons
-        )
-        # Recursively build internal dictionaries as child contexts.
-        for key, value in kwargs.items():
-            if isinstance(value, dict) and value is not self and not isinstance(value, Context):
-                value = self.create_child(**value)
-            self[key] = value
-
-    def create_child(self, _io=None, _subcons=None, **kwargs):
-        """Factory method for initializing a child Context."""
-        # Don't allow children to change the processing status or index
-        kwargs.pop('_parsing', None)
-        kwargs.pop('_building', None)
-        kwargs.pop('_sizing', None)
-        kwargs.pop('_index', None)
-
-        context = Context(
-            _parsing=self._parsing,
-            _building=self._building,
-            _sizing=self._sizing,
-            _io=_io,
-            _subcons=_subcons,
-            _index=self._index,
-            **kwargs,
-        )
-        context._ = self
-        context._params = self._params
-        # First child is root, since the very first parent context holds the user defined external parameters.
-        context._root = self._root or context
-        return context
-
-    def get_child(self, name, default=None):
-        """Retrieves child Context or returns default if it doesn't exist."""
-        child_context = self.get(name, None)
-        if child_context and isinstance(child_context, Context):
-            return child_context
-        else:
-            return default
-
-
 def singleton(arg):
     x = arg()
     return x
@@ -2328,8 +2274,7 @@ class Struct(Construct):
         block = f"""
             def {fname}(io, this):
                 result = Container()
-                this = Container(_ = this, _params = this['_params'], _root = None, _parsing = True, _building = False, _sizing = False, _subcons = None, _io = io, _index = this.get('_index', None))
-                this['_root'] = this['_'].get('_root', this)
+                this = this.create_child(_io=io)
                 try:
         """
         for sc in self.subcons:
@@ -2349,8 +2294,7 @@ class Struct(Construct):
         fname = f"build_struct_{code.allocateId()}"
         block = f"""
             def {fname}(obj, io, this):
-                this = Container(_ = this, _params = this['_params'], _root = None, _parsing = False, _building = True, _sizing = False, _subcons = None, _io = io, _index = this.get('_index', None))
-                this['_root'] = this['_'].get('_root', this)
+                this = this.create_child(_io=io)
                 this.update(obj)
                 try:
                     objdict = obj

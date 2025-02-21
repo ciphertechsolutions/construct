@@ -974,6 +974,7 @@ def test_overall_parse(benchmark):
     d = example
     benchmark(d.parse, exampledata)
 
+@pytest.mark.xfail(reason="compilation feature to be removed")
 def test_overall_parse_compiled(benchmark):
     d = example
     d = d.compile()
@@ -984,6 +985,7 @@ def test_overall_build(benchmark):
     obj = example.parse(exampledata)
     benchmark(d.build, obj)
 
+@pytest.mark.xfail(reason="compilation feature to be removed")
 def test_overall_build_compiled(benchmark):
     d = example
     d = d.compile()

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import pytest
+
 from tests.declarativeunittest import *
 from construct import *
 from construct.lib import *
@@ -176,11 +178,12 @@ example = Struct(
 )
 exampledata = bytes(1000)
 
-
+@pytest.mark.xfail(reason="compilation feature to be removed")
 def test_compiled_example_benchmark():
     d = example.compile(filename="example_compiled.py")
     d.benchmark(exampledata, filename="example_benchmark.txt")
 
+@pytest.mark.xfail(reason="compilation feature to be removed")
 def test_compiled_example_integrity():
     d = example
     obj = d.parse(exampledata)

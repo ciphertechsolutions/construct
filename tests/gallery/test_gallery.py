@@ -1,3 +1,5 @@
+import pytest
+
 from tests.declarativeunittest import *
 from construct import *
 from construct.lib import *
@@ -34,4 +36,5 @@ def test_utindex():
     for test, ev in zip(test_data, expected_values):
         assert d.parse(bytes(test)) == ev
         assert d.build(ev) == bytes(test)
-    assert raises(d.sizeof) == SizeofError
+    with pytest.raises(SizeofError):
+        d.sizeof()
