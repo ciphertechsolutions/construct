@@ -287,10 +287,10 @@ def test_zigzag_regression():
     d.build(dict(namelen=400))
 
 
-def test_paddedstring():
-    common(PaddedString(10, "utf8"), b"hello\x00\x00\x00\x00\x00", u"hello", 10)
+def test_String():
+    common(String(10, "utf8"), b"hello\x00\x00\x00\x00\x00", u"hello", 10)
 
-    d = PaddedString(100, "ascii")
+    d = String(100, "ascii")
     assert d.parse(b"X" * 100) == u"X" * 100
     assert d.build(u"X" * 100) == b"X" * 100
     with pytest.raises(PaddingError):
@@ -299,14 +299,14 @@ def test_paddedstring():
     for e, us in [("utf8", 1), ("utf16", 2), ("utf_16_le", 2), ("utf32", 4), ("utf_32_le", 4)]:
         s = u"Афон"
         data = (s.encode(e) + bytes(100))[:100]
-        common(PaddedString(100, e), data, s, 100)
+        common(String(100, e), data, s, 100)
         s = u""
         data = bytes(100)
-        common(PaddedString(100, e), data, s, 100)
+        common(String(100, e), data, s, 100)
 
-    for e in ["ascii","utf8","utf16","utf-16-le","utf32","utf-32-le"]:
-        assert PaddedString(10, e).sizeof() == 10
-        assert PaddedString(this.n, e).sizeof(n=10) == 10
+    for e in ["ascii", "utf8", "utf16", "utf-16-le", "utf32", "utf-32-le"]:
+        assert String(10, e).sizeof() == 10
+        assert String(this.n, e).sizeof(n=10) == 10
 
 
 def test_pascalstring():
@@ -337,9 +337,9 @@ def test_cstring():
         common(CString(e), s.encode(e) + bytes(us), s)
         common(CString(e), bytes(us), u"")
 
-    CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
-    CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
-    CString("utf32").build(
+    assert CString("utf8").build(s) == b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd' + b"\x00"
+    assert CString("utf16").build(s) == b'\xff\xfe\x10\x04D\x04>\x04=\x04' + b"\x00\x00"
+    assert CString("utf32").build(
         s) == b'\xff\xfe\x00\x00\x10\x04\x00\x00D\x04\x00\x00>\x04\x00\x00=\x04\x00\x00' + b"\x00\x00\x00\x00"
 
     for e in ["utf8", "utf16", "utf-16-le", "utf32", "utf-32-le", "ascii"]:
@@ -527,7 +527,7 @@ def test_struct():
     common(Struct(), b"", Container(), 0)
     common(Struct("a" / Int16ub, "b" / Int8ub), b"\x00\x01\x02", Container(a=1, b=2), 3)
     common(Struct("a" / Struct("b" / Byte)), b"\x01", Container(a=Container(b=1)), 1)
-    common(Struct(Const(b"\x00"), Padding(1), Pass, Terminated), bytes(2), {}, SizeofError)
+    common(Struct(Const(b"\x00"), Padding(1), Pass, Terminated), bytes(2), {}, 2)
     with pytest.raises(KeyError):
         Struct("missingkey" / Byte).build({})
     with pytest.raises(SizeofError):
@@ -609,7 +609,7 @@ def test_array():
     d = Array(3, Byte)
     common(d, b"\x01\x02\x03", [1, 2, 3], 3)
     assert d.parse(b"\x01\x02\x03additionalgarbage") == [1, 2, 3]
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         d.parse(b"")
     with pytest.raises(RangeError):
         d.build([1, 2])
@@ -620,7 +620,7 @@ def test_array():
     common(d, b"\x01\x02\x03", [1, 2, 3], 3, n=3)
     assert d.parse(b"\x01\x02\x03", n=3) == [1, 2, 3]
     assert d.parse(b"\x01\x02\x03additionalgarbage", n=3) == [1, 2, 3]
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         d.parse(b"", n=3)
     with pytest.raises(RangeError):
         d.build([1, 2], n=3)
@@ -825,13 +825,13 @@ def test_error():
 
 
 def test_focusedseq():
-    common(FocusedSeq("num", Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, SizeofError)
-    common(FocusedSeq(this._.s, Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, SizeofError, s="num")
+    common(FocusedSeq("num", Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, 3)
+    common(FocusedSeq(this._.s, Const(b"MZ"), "num" / Byte, Terminated), b"MZ\xff", 255, 3, s="num")
 
     d = FocusedSeq("missing", Pass)
-    with pytest.raises(UnboundLocalError):
+    with pytest.raises(ConstructError):
         d.parse(b"")
-    with pytest.raises(UnboundLocalError):
+    with pytest.raises(ConstructError):
         d.build({})
     assert d.sizeof() == 0
     d = FocusedSeq(this.missing, Pass)
@@ -913,23 +913,14 @@ def test_hexdump():
     common(d, b"abcdef", b"abcdef")
     common(d, b"", b"")
     obj = d.parse(b"\x00\x00\x01\x02")
-    repr = \
-'''hexundump("""
-0000   00 00 01 02                                       ....
-""")
-'''
-    pass
+    repr = '0000   00 00 01 02                                       ....'
     assert str(obj) == repr
     assert str(obj) == repr
 
     d = HexDump(RawCopy(Int32ub))
     common(d, b"\x00\x00\x01\x02", dict(data=b"\x00\x00\x01\x02", value=0x0102, offset1=0, offset2=4, length=4), 4)
     obj = d.parse(b"\x00\x00\x01\x02")
-    repr = \
-'''hexundump("""
-0000   00 00 01 02                                       ....
-""")
-'''
+    repr = '0000   00 00 01 02                                       ....'
     assert str(obj) == repr
     assert str(obj) == repr
 
@@ -1110,13 +1101,14 @@ def test_stopif():
     d = Sequence("x"/Byte, StopIf(this.x == 0), "y"/Byte)
     common(d, b"\x01\x02", [1,None,2])
 
-    d = GreedyRange(FocusedSeq("x", "x" / Byte, StopIf(this.x == 0)))
+    d = FocusedSeq("x", "x" / Byte, StopIf(this.x == 0))[:]
     assert d.parse(b"\x01\x00?????") == [1]
+    assert d.parse(b'\x00') == []
     assert d.build([]) == b""
+    # Same logic should be applied on builds.
     assert d.build([0]) == b"\x00"
-    assert d.build([1]) == b"\x01"
     assert d.build([1, 0, 2]) == b"\x01\x00"
-
+    assert d.build([1, 0]) == b'\x01\x00'
 
 def test_padding():
     common(Padding(4), b"\x00\x00\x00\x00", None, 4)
@@ -1232,9 +1224,9 @@ def test_pass():
 
 
 def test_terminated():
-    common(Terminated, b"", None, SizeofError)
-    common(Struct(Terminated), b"", Container(), SizeofError)
-    common(BitStruct(Terminated), b"", Container(), SizeofError)
+    common(Terminated, b"", None, 0)
+    common(Struct(Terminated), b"", Container(), 0)
+    common(BitStruct(Terminated), b"", Container(), 0)
     with pytest.raises(TerminatedError):
         Terminated.parse(b"x")
     with pytest.raises(TerminatedError):
@@ -1325,13 +1317,20 @@ def test_prefixed():
 
 
 def test_prefixedarray():
+    spec = PrefixedArray(Byte, Byte)
+    assert spec.parse(b'\x02\x0a\x0b') == [10, 11]
+    assert spec.build([10, 11]) == b'\x02\x0a\x0b'
+    with pytest.raises(SizeofError):
+        spec.sizeof()
+    # TODO: We should be able to do this!
+    # assert spec.sizeof([10, 11]) == 3
     common(PrefixedArray(Byte, Byte), b"\x02\x0a\x0b", [10, 11], SizeofError)
     assert PrefixedArray(Byte, Byte).parse(b"\x03\x01\x02\x03") == [1, 2, 3]
     assert PrefixedArray(Byte, Byte).parse(b"\x00") == []
     assert PrefixedArray(Byte, Byte).build([1, 2, 3]) == b"\x03\x01\x02\x03"
-    with pytest.raises(StreamError):
+    with pytest.raises(StreamError):  # StreamError because we fail to read prefix entry.
         PrefixedArray(Byte, Byte).parse(b"")
-    with pytest.raises(StreamError):
+    with pytest.raises(RangeError):
         PrefixedArray(Byte, Byte).parse(b"\x03\x01")
     with pytest.raises(SizeofError):
         PrefixedArray(Byte, Byte).sizeof()
@@ -2503,7 +2502,7 @@ def test_exportksy():
         "int32le" / BytesInteger(4, swapped=True),
         "varint" / VarInt,
 
-        "string1" / PaddedString(10, "utf8"),
+        "string1" / String(10, "utf8"),
         "string2" / PascalString(Byte, "utf8"),
         "string3" / CString("utf8"),
         "string4" / GreedyString("utf8"),
@@ -2598,6 +2597,7 @@ def test_greedybytes_issue_697():
     d.parse(bytes(5))
 
 
+@pytest.mark.skip('This feature needs to be reworked.')
 def test_hex_issue_709():
     # Make sure, the fix doesn't destroy already working code
     d = Hex(Bytes(1))

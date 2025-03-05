@@ -162,7 +162,7 @@ optionalheader = Struct(
 )
 
 section = Struct(
-    "name" / PaddedString(8, "utf8"),
+    "name" / String(8),
     "virtual_size" / Int32ul,
     "virtual_address" / Int32ul,
     "rawdata_size" / Int32ul,
