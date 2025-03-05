@@ -294,7 +294,7 @@ class Context(Container):
     """Special type of Container used to store contextual information during processing."""
 
     def __init__(self, _parsing=False, _building=False, _sizing=False, _io=None, _index=0, _subcons=None, **kwargs):
-        super(Context, self).__init__(
+        super().__init__(
             _=None,                   # Parent context.
             _root=None,               # Root context.
             _params=self,             # Global parameters.
@@ -308,9 +308,23 @@ class Context(Container):
         )
         # Recursively build internal dictionaries as child contexts.
         for key, value in kwargs.items():
-            if isinstance(value, dict) and value is not self and not isinstance(value, Context):
-                value = self.create_child(**value)
-            self[key] = value
+            self[key] = self._value_set(value)
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, self._value_set(value))
+
+    def update(self, m, /, **kwargs):
+        super().update({
+            key: self._value_set(value)
+            for key, value in dict(m, **kwargs).items()}
+        )
+
+    def _value_set(self, value):
+        """Hook for when a value is set."""
+        # Recursively build internal dictionaries as child contexts.
+        if isinstance(value, dict) and value is not self and not isinstance(value, Context):
+            value = self.create_child(**value)
+        return value
 
     def create_child(self, _io=None, _subcons=None, **kwargs):
         """Factory method for initializing a child Context."""

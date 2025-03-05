@@ -587,6 +587,7 @@ def test_struct_issue_771():
     assert info == {'a': 1, 'b': {'count': 2, 'entries': [0x0a, 0x0b]}}
     assert spec.build(info) == data
     assert spec.sizeof(**info) == 10
+    assert spec.sizeof(info) == 10  # should work either way
 
 def test_sequence():
     common(Sequence(), b"", [], 0)

@@ -477,7 +477,7 @@ class Construct(object):
         """Override in your subclass."""
         raise NotImplementedError
 
-    def sizeof(self, **contextkw):
+    def sizeof(self, obj: dict = None, /, **contextkw):
         r"""
         Calculate the size of this object, optionally using a context.
 
@@ -487,6 +487,7 @@ class Construct(object):
 
         Context entries are passed only as keyword parameters \*\*contextkw.
 
+        :param obj: Context object to build from.
         :param \*\*contextkw: context entries, usually empty
 
         :returns: integer if computable, SizeofError otherwise
@@ -496,7 +497,12 @@ class Construct(object):
         contextkw.pop('_parsing', None)
         contextkw.pop('_building', None)
         contextkw.pop('_sizing', None)
-        context = Context(_sizing=True, **contextkw)
+        context = Context(_sizing=True)
+        if obj:
+            context.update(obj)
+        if contextkw:
+            context.update(contextkw)
+
         return self._sizeof(context, "(sizeof)")
 
     def _sizeof(self, context, path):
