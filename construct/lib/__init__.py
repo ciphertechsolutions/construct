@@ -12,6 +12,7 @@ __all__ = [
     'bytes2integer',
     'bytes2str',
     'Container',
+    'Context',
     'globalPrintFalseFlags',
     'globalPrintFullStrings',
     'HexDisplayedBytes',

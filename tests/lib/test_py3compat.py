@@ -9,6 +9,7 @@ def test_int_byte():
     assert byte2int(b"\xff") == 255
     assert all(byte2int(int2byte(i)) == i for i in range(256))
 
+
 def test_str_bytes():
     assert str2bytes("abc") == b"abc"
     assert bytes2str(b"abc") == "abc"

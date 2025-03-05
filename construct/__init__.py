@@ -70,6 +70,7 @@ __all__ = [
     'Construct',
     'ConstructError',
     'Container',
+    'Context',
     'CString',
     'Debugger',
     'Default',
