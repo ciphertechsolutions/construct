@@ -21,6 +21,6 @@ def SkipNull():
     Skips over until it hits the first non-zero byte.
 
     >>> Struct('num' / Int32ul, SkipNull, 'entry' / String(3)).parse(b'\x01\x00\x00\x00\x00\x00\x00\x00hi!')
-    Container(num=1, entry=u'hi!')
+    Container(num=1, entry='hi!')
     """
     return Const(b'\x00')[:]

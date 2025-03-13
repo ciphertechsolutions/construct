@@ -1066,7 +1066,8 @@ class Bytes(Construct):
         >>> d.sizeof()
         Traceback (most recent call last):
             ...
-        construct.core.SizeofError: cannot calculate size, key not found in context
+        construct.core.SizeofError: Error in path (sizeof) -> data
+        cannot calculate size, key not found in context
     """
 
     def __init__(self, length):
@@ -1955,7 +1956,7 @@ class StringEncoded(Adapter):
         try:
             return obj.decode(self.encoding)
         except UnicodeDecodeError as e:
-            raise StringError(f"cannot use encoding {self.encoding!r} to decode {obj!r}: {e}")
+            raise StringError(f"cannot use encoding {self.encoding!r} to decode {obj!r}: {e}", path=path)
 
     def _encode(self, obj, context, path):
         if not isinstance(obj, str):
@@ -1965,7 +1966,7 @@ class StringEncoded(Adapter):
         try:
             return obj.encode(self.encoding)
         except UnicodeEncodeError as e:
-            raise StringError(f"cannot use encoding {self.encoding!r} to encode {obj!r}: {e}")
+            raise StringError(f"cannot use encoding {self.encoding!r} to encode {obj!r}: {e}", path=path)
 
     def _emitparse(self, code):
         raise NotImplementedError
@@ -2031,7 +2032,8 @@ def String(length, encoding='utf8', remove_padding=True):
         >>> String(8).parse(b'hello\x00\xff\xff')
         Traceback (most recent call last):
             ...
-        construct.core.StringError: 'utf-8' codec can't decode byte 0xff in position 6: invalid start byte
+        construct.core.StringError: Error in path (parsing)
+        cannot use encoding 'utf8' to decode b'hello\x00\xff\xff': 'utf-8' codec can't decode byte 0xff in position 6: invalid start byte
     """
     if remove_padding:
         # TODO: Support encodings with dynamic number of unit sizes.
@@ -2844,11 +2846,13 @@ class Range(Subconstruct):
         >>> d.build([1,2])
         Traceback (most recent call last):
             ...
-        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 2
+        construct.core.RangeError: Error in path (building)
+        expected from 3 to 5 elements, found 2
         >>> d.build([1,2,3,4,5,6])
         Traceback (most recent call last):
             ...
-        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 6
+        construct.core.RangeError: Error in path (building)
+        expected from 3 to 5 elements, found 6
 
         # Alternative syntax:
         >>> d = Byte[3:5]
@@ -2859,11 +2863,13 @@ class Range(Subconstruct):
         >>> d.build([1,2])
         Traceback (most recent call last):
             ...
-        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 2
+        construct.core.RangeError: Error in path (building)
+        expected from 3 to 5 elements, found 2
         >>> d.build([1,2,3,4,5,6])
         Traceback (most recent call last):
             ...
-        construct.core.RangeError: [(building)] expected from 3 to 5 elements, found 6
+        construct.core.RangeError: Error in path (building)
+        expected from 3 to 5 elements, found 6
 
         # Infinite/max ints are used if not provided.
         >>> d = Range(3, None, Byte) or Byte[3:]
@@ -2874,7 +2880,8 @@ class Range(Subconstruct):
         >>> d.build([1,2])
         Traceback (most recent call last):
             ...
-        construct.core.RangeError: [(building)] expected from 3 to infinite elements, found 2
+        construct.core.RangeError: Error in path (building)
+        expected from 3 to infinite elements, found 2
         >>> d = Range(None, 5, Byte) or Byte[:5]
         >>> d.build([1, 2, 3, 4])
         b'\x01\x02\x03\x04'
@@ -2883,7 +2890,8 @@ class Range(Subconstruct):
         >>> d.build([1,2,3,4,5,6])
         Traceback (most recent call last):
             ...
-        construct.core.RangeError: [(building)] expected from 0 to 5 elements, found 6
+        construct.core.RangeError: Error in path (building)
+        expected from 0 to 5 elements, found 6
         >>> d = Range(None, None, Byte) or GreedyRange(Byte) or Byte[:]
         >>> d.build([1, 2, 3, 4])
         b'\x01\x02\x03\x04'
@@ -3271,7 +3279,8 @@ class Const(Subconstruct):
         >>> d.parse(b"JPEG")
         Traceback (most recent call last):
             ...
-        construct.core.ConstError: parsing expected b'IHDR' but parsed b'JPEG'
+        construct.core.ConstError: Error in path (parsing)
+        parsing expected b'IHDR' but parsed b'JPEG'
 
         >>> d = Const(255, Int32ul)
         >>> d.build(None)
@@ -6348,7 +6357,7 @@ class EncryptedSym(Tunnel):
 
         >>> from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         >>> d = Struct(
-        ...     "iv" / Default(Bytes(16), os.urandom(16)),
+        ...     "iv" / Default(Bytes(16), lambda ctx: ctx._.iv),
         ...     "enc_data" / EncryptedSym(
         ...         Aligned(16,
         ...             Struct(
@@ -6359,10 +6368,11 @@ class EncryptedSym(Tunnel):
         ...         lambda ctx: Cipher(algorithms.AES(ctx._.key), modes.CBC(ctx.iv))
         ...     )
         ... )
+        >>> iv = b"o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86"
         >>> key128 = b"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f"
-        >>> d.build({"enc_data": {"width": 5, "height": 4}}, key=key128)
+        >>> d.build({"enc_data": {"width": 5, "height": 4}}, key=key128, iv=iv)
         b"o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86+\x00\x89\xf7\x8e\xc3L\x04\t\xca\x8a\xc8\xc2\xfb'\xc8"
-        >>> d.parse(b"o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86+\x00\x89\xf7\x8e\xc3L\x04\t\xca\x8a\xc8\xc2\xfb'\xc8", key=key128)
+        >>> print(d.parse(_, key=key128, iv=iv))  # doctest: +REPORT_UDIFF
         Container:
             iv = b'o\x11i\x98~H\xc9\x1c\x17\x83\xf6|U:\x1a\x86' (total 16)
             enc_data = Container:
@@ -6423,7 +6433,7 @@ class EncryptedSymAead(Tunnel):
 
         >>> from cryptography.hazmat.primitives.ciphers import aead
         >>> d = Struct(
-        ...     "nonce" / Default(Bytes(16), os.urandom(16)),
+        ...     "nonce" / Default(Bytes(16), lambda ctx: ctx._.nonce),
         ...     "associated_data" / Bytes(21),
         ...     "enc_data" / EncryptedSymAead(
         ...         GreedyBytes,
@@ -6432,10 +6442,11 @@ class EncryptedSymAead(Tunnel):
         ...         this.associated_data
         ...     )
         ... )
+        >>> nonce = b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xee'
         >>> key128 = b"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f"
-        >>> d.build({"associated_data": b"This is authenticated", "enc_data": b"The secret message"}, key=key128)
+        >>> d.build({"associated_data": b"This is authenticated", "enc_data": b"The secret message"}, key=key128, nonce=nonce)
         b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xeeThis is authenticated\x88~\xe5Vh\x00\x01m\xacn\xad k\x02\x13\xf4\xb4[\xbe\x12$\xa0\x7f\xfb\xbf\x82Ar\xb0\x97C\x0b\xe3\x85'
-        >>> d.parse(b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xeeThis is authenticated\x88~\xe5Vh\x00\x01m\xacn\xad k\x02\x13\xf4\xb4[\xbe\x12$\xa0\x7f\xfb\xbf\x82Ar\xb0\x97C\x0b\xe3\x85', key=key128)
+        >>> print(d.parse(_, key=key128, nonce=nonce))    # doctest: +REPORT_UDIFF
         Container:
             nonce = b'\xe3\xb0"\xbaQ\x18\xd3|\x14\xb0q\x11\xb5XZ\xee' (total 16)
             associated_data = b'This is authenti'... (truncated, total 21)
@@ -6939,8 +6950,8 @@ class ExprValidator(Validator):
         >>> d.build(88)
         Traceback (most recent call last):
             ...
-        construct.core.ValidationError: object failed validation: 88
-
+        construct.core.ValidationError: Error in path (building)
+        object failed validation: 88
     """
 
     def __init__(self, subcon, validator):
@@ -6967,7 +6978,8 @@ def OneOf(subcon, valids):
         >>> d.parse(b"\xff")
         Traceback (most recent call last):
             ...
-        construct.core.ValidationError: object failed validation: 255
+        construct.core.ValidationError: Error in path (parsing)
+        object failed validation: 255
     """
     return ExprValidator(subcon, lambda obj, ctx: obj in valids)
 

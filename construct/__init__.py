@@ -139,6 +139,7 @@ __all__ = [
     'Optional',
     'Padded',
     'String',
+    'PaddedString',  # deprecated
     'Padding',
     'PaddingError',
     'PascalString',

@@ -451,11 +451,11 @@ def test_enum_issue_677():
     assert isinstance(d.parse(b"\x01"), EnumIntegerString)
 
     d = Struct("e" / Enum(Byte, one=1))
-    assert str(d.parse(b"\x01")) == 'Container: \n    e = (enum) one 1'
-    assert str(d.parse(b"\xff")) == 'Container: \n    e = (enum) (unknown) 255'
+    assert str(d.parse(b"\x01")) == 'Container:\n    e = (enum) one 1'
+    assert str(d.parse(b"\xff")) == 'Container:\n    e = (enum) (unknown) 255'
     d = Struct("e" / Enum(Byte, one=1)).compile()
-    assert str(d.parse(b"\x01")) == 'Container: \n    e = (enum) one 1'
-    assert str(d.parse(b"\xff")) == 'Container: \n    e = (enum) (unknown) 255'
+    assert str(d.parse(b"\x01")) == 'Container:\n    e = (enum) one 1'
+    assert str(d.parse(b"\xff")) == 'Container:\n    e = (enum) (unknown) 255'
 
 
 @xfail(reason="Cannot implement this in EnumIntegerString.")
