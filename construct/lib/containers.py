@@ -161,7 +161,7 @@ class Container(dict):
     @recursion_lock()
     def __str__(self, /):
         indentation = "\n    "
-        text = ["Container: "]
+        text = ["Container:"]
         isflags = getattr(self, "_flagsenum", False)
         for k, v in self.__class__.items(self):
             if isinstance(k, str) and k.startswith("_") and not globalPrintPrivateEntries:
