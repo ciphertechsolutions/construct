@@ -1178,13 +1178,7 @@ def Bitwise(subcon):
 
     try:
         size = subcon.sizeof()
-        # TODO: If size is 0 we are going to use Restreamed to replicate the way this worked when we
-        #   had a zero length construct like Terminated.
-        #   Determine what the different of Restreamed and Transformed is
-        if size == 0:
-            macro = Restreamed(subcon, bytes2bits, 1, bits2bytes, 8, lambda n: n // 8)
-        else:
-            macro = Transformed(subcon, bytes2bits, size // 8, bits2bytes, size // 8)
+        macro = Transformed(subcon, bytes2bits, size//8, bits2bytes, size//8)
     except SizeofError:
         macro = Restreamed(subcon, bytes2bits, 1, bits2bytes, 8, lambda n: n // 8)
 

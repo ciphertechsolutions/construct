@@ -42,3 +42,15 @@ A ``Sequence`` is a collection of ordered fields, and differs from ``Array`` and
     b'\nlalaland\xff\x01\x02'
     >>> format.parse(b"\x004361789432197")
     ['', [52, 51, 54, 49, 55, 56, 57, 52, 51, 50, 49, 57, 55]]
+
+
+Differences
+-----------
+
+Malstruct contains the following differences from the original construct library:
+- Resurrection of version 2.8 features:
+    - ``PaddedString`` has been renamed back to ``String``
+    - ``Range`` and its bracket syntax. (e.g. ``Bytes[:5]``)
+- New constructs:
+    - ``SkipNull``
+    - ``CBytes``
